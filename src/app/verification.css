@@ -1,0 +1,52 @@
+:root {
+    font-family: system-ui, "Yu Gothic UI", sans-serif;
+    color: #eeedf6;
+    background: #17151f;
+    font-synthesis: none;
+    line-height: 1.7;
+}
+
+body {
+    margin: 0;
+}
+
+/* 検証用画面の可読性だけを整え、製品の固定パネル配置は定義しない。 */
+.verification {
+    max-width: 48rem;
+    margin-inline: auto;
+    padding: clamp(1rem, 5vw, 4rem);
+}
+
+.verification__label {
+    color: #c7a9ff;
+    font-weight: 700;
+}
+
+h1 {
+    font-size: clamp(2rem, 6vw, 3rem);
+    line-height: 1.2;
+}
+
+.verification__note {
+    color: #bdb7cb;
+}
+
+button {
+    font: inherit;
+    font-weight: 700;
+    color: #fff;
+    background: #6d3bc2;
+    border: 1px solid #b994f3;
+    border-radius: 0.5rem;
+    padding: 0.65rem 1.1rem;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #7b46d5;
+}
+
+button:focus-visible {
+    outline: 3px solid #e6d5ff;
+    outline-offset: 4px;
+}
