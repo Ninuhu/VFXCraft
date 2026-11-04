@@ -17,3 +17,16 @@ Three.js 0.186.1 と型定義 0.186.0 の公開情報を公式npmレジストリ
 - [3Dビルボード・加算・Bloomの検証画像](t01-evidence/phase2-3d-bloom.png)
 - 自動テストの再実行は `node --test tests/t01-particles.test.mjs`。
 - Bloomの確認は不透明背景。透過PNGとBloomのアルファ検証はPhase 3。Canvas 2DとWebGLの同一条件での描画比較、Chrome・Edgeでの確認、性能測定、ADR更新は未実施。上表は各ATの製品検収結果ではない。
+
+## Phase 3 保存・出力（2026-11-05）
+
+- **REQ-Q10-05、AT-13の透過部分**。表示中の時刻とカメラを使って単一フレームをPNGにする。3D、加算＋Bloom、停止中の条件でダウンロードしたファイルを復号し、640×360、完全透明10,619画素、半透明219,253画素、不透明528画素を確認した。
+- **REQ-Q10-06、AT-12の保存基盤部分**。IndexedDBの1レコードに設定・時刻・PNG Blobを一括保存し、トランザクション完了を待つ。アプリ内ブラウザで保存→再読み込み→明示復元を行い、3Dモード、加算・Bloomのチェック状態、640×360の復元画像を確認した。空の保存枠ではエラーが表示された。
+- **検査**。`node --test tests/t01-particles.test.mjs tests/t01-storage-and-png.test.mjs` は5件通過。`pnpm build` はstrict型検査・ビルド成功。Viteのチャンクサイズ警告あり。
+- [アプリ内ブラウザの復元画面](t01-evidence/phase3-restore.png)
+
+黒背景の発光色と通常合成時の被覆率から、8bit PNG用のアルファを近似した。初回は極低輝度の発光で完全透明画素が0だったため、微弱な裾だけを滑らかに減衰させた。黒背景での見た目を基準にしており、任意の背景に対する加算合成の厳密再現は検証範囲外。色の許容差や他の条件での比較は残件。
+
+保存枠は検証用の手動操作で、カメラ姿勢は復元対象外。容量超過、書込中断、破損PNGを使ったブラウザでの異常系、Chrome・Edge、ブラウザ終了後の再起動は未実施。製品の自動保存・PNG連番・スプライトシートの受け入れ判定は後工程で行う。
+
+参照：[Canvas PNGエンコード](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob)、[IndexedDB仕様](https://www.w3.org/TR/IndexedDB/)。

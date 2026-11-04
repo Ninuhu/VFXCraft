@@ -9,6 +9,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { evaluateParticle, PARTICLE_COUNT, type Emission } from "./evaluateParticles";
+import { captureTransparentFrame, encodePng } from "./exportTransparentPng";
 
 export type PreviewMode = "2d" | "pixel" | "3d";
 export type PreviewOptions = {
@@ -66,7 +67,7 @@ export class WebGlPreview {
     constructor(canvas: HTMLCanvasElement) {
         this._texture = createParticleTexture();
         try {
-            this._renderer = new WebGLRenderer({ canvas, antialias: false });
+            this._renderer = new WebGLRenderer({ canvas, antialias: false, alpha: true });
         } catch (error) {
             this._texture.dispose();
             throw error;
@@ -137,6 +138,35 @@ export class WebGlPreview {
     // カメラを開始時の視点へ戻す
     public resetCamera(): void {
         this._controls.reset();
+    }
+
+    ////////////////////
+    // 現在のカメラで1フレームだけ背景なしで描画し、元の表示を戻す
+    public capturePng(seconds: number, options: PreviewOptions): Promise<Blob> {
+        if (this._renderer.getContext().isContextLost()) {
+            throw new Error("WebGLコンテキストが失われたため出力できません。");
+        }
+        const background = this._scene.background; // 出力後に戻すプレビュー背景
+        const canvas = this._renderer.domElement; // 描画と同じ処理内で読み取る元画像
+        const needsGlow = options.hasBloom || options.isAdditive; // 黒背景での光をPNGへ移すか
+
+        try {
+            return encodePng(captureTransparentFrame(
+                canvas,
+                () => {
+                    this._scene.background = null;
+                    this._renderer.setClearColor(0x000000, 0);
+                    this.render(seconds, { ...options, hasBloom: false, isAdditive: false });
+                },
+                needsGlow ? () => {
+                    this._scene.background = new Color(0x000000);
+                    this.render(seconds, options);
+                } : undefined,
+            ));
+        } finally {
+            this._scene.background = background;
+            this.render(seconds, options);
+        }
     }
 
     ////////////////////
