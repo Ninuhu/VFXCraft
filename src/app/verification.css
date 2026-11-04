@@ -50,3 +50,33 @@ button:focus-visible {
     outline: 3px solid #e6d5ff;
     outline-offset: 4px;
 }
+
+.verification__controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    align-items: center;
+    margin-block: 1rem;
+}
+
+.verification__controls label {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.verification__controls select {
+    font: inherit;
+}
+
+.verification__canvas {
+    display: block;
+    width: min(100%, 640px);
+    aspect-ratio: 16 / 9;
+    height: auto;
+    background: #12101b;
+}
+
+.verification__canvas--pixel {
+    image-rendering: pixelated;
+}
