@@ -17,3 +17,41 @@ Three.js 0.186.1 と型定義 0.186.0 の公開情報を公式npmレジストリ
 - [3Dビルボード・加算・Bloomの検証画像](t01-evidence/phase2-3d-bloom.png)
 - 自動テストの再実行は `node --test tests/t01-particles.test.mjs`。
 - Bloomの確認は不透明背景。透過PNGとBloomのアルファ検証はPhase 3。Canvas 2DとWebGLの同一条件での描画比較、Chrome・Edgeでの確認、性能測定、ADR更新は未実施。上表は各ATの製品検収結果ではない。
+
+## Phase 3 保存・出力（2026-11-05）
+
+- **REQ-Q10-05、AT-13の透過部分**。表示中の時刻とカメラを使って単一フレームをPNGにする。3D、加算＋Bloom、停止中の条件でダウンロードしたファイルを復号し、640×360、完全透明10,619画素、半透明219,253画素、不透明528画素を確認した。
+- **REQ-Q10-06、AT-12の保存基盤部分**。IndexedDBの1レコードに設定・時刻・PNG Blobを一括保存し、トランザクション完了を待つ。アプリ内ブラウザで保存→再読み込み→明示復元を行い、3Dモード、加算・Bloomのチェック状態、640×360の復元画像を確認した。空の保存枠ではエラーが表示された。
+- **検査**。`node --test tests/t01-particles.test.mjs tests/t01-storage-and-png.test.mjs` は5件通過。`pnpm build` はstrict型検査・ビルド成功。Viteのチャンクサイズ警告あり。
+- [アプリ内ブラウザの復元画面](t01-evidence/phase3-restore.png)
+
+黒背景の発光色と通常合成時の被覆率から、8bit PNG用のアルファを近似した。初回は極低輝度の発光で完全透明画素が0だったため、微弱な裾だけを滑らかに減衰させた。黒背景での見た目を基準にしており、任意の背景に対する加算合成の厳密再現は検証範囲外。色の許容差や他の条件での比較は残件。
+
+保存枠は検証用の手動操作で、カメラ姿勢は復元対象外。容量超過、書込中断、破損PNGを使ったブラウザでの異常系、Chrome・Edge、ブラウザ終了後の再起動は未実施。製品の自動保存・PNG連番・スプライトシートの受け入れ判定は後工程で行う。
+
+参照：[Canvas PNGエンコード](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/toBlob)、[IndexedDB仕様](https://www.w3.org/TR/IndexedDB/)。
+
+## Phase 4 Chrome検証と性能測定（2026-11-05）
+
+| 確認項目 | 結果 |
+| --- | --- |
+| `pnpm test` | 発生・寿命・座標、発光アルファ、保存値検証の5件通過 |
+| `pnpm build` | strict型検査と本番ビルド成功。JSは約803 kB、gzip約214 kB。チャンクサイズ警告あり |
+| `pnpm test:e2e` | 実機にインストール済みのChrome 156.0.8078.80をヘッドレス実行し、3件通過 |
+| REQ-Q08-04/05、REQ-Q11-01・AT-03/04の一部 | 通常2D・ピクセル2D・3Dへの切替と内部描画幅、カメラの平行移動・ズームによる描画変化、リセット後の同一画像を確認 |
+| REQ-Q10-05/06・AT-12/13の一部 | 空の保存枠、ページ再読み込み後の設定とPNGの復元、実ダウンロードの160×90 PNGの完全透明・半透明画素を確認。Bloom付き透過PNGの画素確認はPhase 3の記録を参照 |
+| Chrome・Edgeの手動確認 | ユーザー報告に基づき動作確認完了。ブラウザ版と項目別結果は報告されていない。Playwrightの自動テスト3件はChromeのみ。[Edge確認手順](T01_EDGE_CHECK.md) |
+
+ChromeのGPU表示はANGLE、AMD Radeon (TM) Graphics、Direct3D11。3D、640×360、加算＋Bloom、Burstの固定時刻0.65秒。各条件で8回ウォームアップ後に30回測定し、`gl.finish()`までを含む。
+
+| 粒子数 | 中央値 | p95 |
+| ---: | ---: | ---: |
+| 100 | 0.7 ms | 1.4 ms |
+| 1,000 | 4.7 ms | 7.1 ms |
+| 5,000 | 23.5 ms | 27.1 ms |
+
+同期描画時間の参考値。通常再生FPSや製品の粒子上限ではない。合成の定量比較、Canvas 2Dとの描画比較、GPUメモリの反復計測、保存中断と容量超過、ブラウザの完全終了後の復元は未実施。
+
+- [ADR-001 Web実行環境とテスト](../architecture/ADR-001.md)
+- [ADR-002 2D・3D描画と透過PNG](../architecture/ADR-002.md)
+- [ADR-007 検証環境と性能測定](../architecture/ADR-007.md)

@@ -61,4 +61,7 @@ MVP-Bの完成は[PROJECT_SPEC.md](docs/PROJECT_SPEC.md)の完成条件と[TEST_
 - [UI v0.1](docs/design/ui/v0.1/README.md)：9画面の暫定参考画像。
 - [旧ファイルの退避記録](docs/archive/pre-t00/README.md)。
 
-アプリ本体・依存関係は未作成。T01は別途承認後に着手します。
+T01の検証用アプリは `pnpm install --frozen-lockfile` の後、`pnpm dev` で起動します。ブラウザで `http://127.0.0.1:5173/` を開いてください。テストは `pnpm test` と `pnpm test:e2e`、本番ビルドは `pnpm build` で実行できます。
+
+- [T01検証記録](docs/development/T01_VALIDATION.md)
+- [Edge手動確認手順](docs/development/T01_EDGE_CHECK.md)

@@ -9,6 +9,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { evaluateParticle, PARTICLE_COUNT, type Emission } from "./evaluateParticles";
+import { captureTransparentFrame, encodePng } from "./exportTransparentPng";
 
 export type PreviewMode = "2d" | "pixel" | "3d";
 export type PreviewOptions = {
@@ -63,10 +64,10 @@ export class WebGlPreview {
 
     ////////////////////
     // 共有素材と固定数のビルボードを用意する
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement, particleCount = PARTICLE_COUNT) {
         this._texture = createParticleTexture();
         try {
-            this._renderer = new WebGLRenderer({ canvas, antialias: false });
+            this._renderer = new WebGLRenderer({ canvas, antialias: false, alpha: true });
         } catch (error) {
             this._texture.dispose();
             throw error;
@@ -79,7 +80,7 @@ export class WebGlPreview {
         this._controls.update();
         this._controls.saveState();
 
-        for (let index = 0; index < PARTICLE_COUNT; index++) {
+        for (let index = 0; index < particleCount; index++) {
             const color = new Color(index % 2 === 0 ? 0x8e55ff : 0x52e7ff); // 2色で重なりを見分ける
             color.multiplyScalar(2); // 明部を発光しきい値より上へ押し上げる
             const material = new SpriteMaterial({
@@ -119,7 +120,7 @@ export class WebGlPreview {
         }
 
         for (const [index, sprite] of this._particles.entries()) {
-            const particle = evaluateParticle(index, seconds, options.emission, is3d); // 同一時刻の粒子状態
+            const particle = evaluateParticle(index, seconds, options.emission, is3d, this._particles.length); // 同一時刻の粒子状態
             if (this._isAdditive !== options.isAdditive) {
                 sprite.material.blending = options.isAdditive ? AdditiveBlending : NormalBlending;
             }
@@ -137,6 +138,35 @@ export class WebGlPreview {
     // カメラを開始時の視点へ戻す
     public resetCamera(): void {
         this._controls.reset();
+    }
+
+    ////////////////////
+    // 現在のカメラで1フレームだけ背景なしで描画し、元の表示を戻す
+    public capturePng(seconds: number, options: PreviewOptions): Promise<Blob> {
+        if (this._renderer.getContext().isContextLost()) {
+            throw new Error("WebGLコンテキストが失われたため出力できません。");
+        }
+        const background = this._scene.background; // 出力後に戻すプレビュー背景
+        const canvas = this._renderer.domElement; // 描画と同じ処理内で読み取る元画像
+        const needsGlow = options.hasBloom || options.isAdditive; // 黒背景での光をPNGへ移すか
+
+        try {
+            return encodePng(captureTransparentFrame(
+                canvas,
+                () => {
+                    this._scene.background = null;
+                    this._renderer.setClearColor(0x000000, 0);
+                    this.render(seconds, { ...options, hasBloom: false, isAdditive: false });
+                },
+                needsGlow ? () => {
+                    this._scene.background = new Color(0x000000);
+                    this.render(seconds, options);
+                } : undefined,
+            ));
+        } finally {
+            this._scene.background = background;
+            this.render(seconds, options);
+        }
     }
 
     ////////////////////

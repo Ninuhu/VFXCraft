@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { WebGlPreview, type PreviewOptions } from "../verification/WebGlPreview";
+import { downloadPng } from "../verification/exportTransparentPng";
+import { loadSnapshot, saveSnapshot } from "../verification/verificationStorage";
+
+type FrameAction = "export" | "save" | "restore";
 
 const INITIAL_OPTIONS: PreviewOptions = {
     mode: "2d",
@@ -14,6 +18,11 @@ const INITIAL_OPTIONS: PreviewOptions = {
 export function App() {
     const [options, setOptions] = useState(INITIAL_OPTIONS); // 検証UIの操作値
     const [error, setError] = useState(""); // WebGLや描画のエラー表示
+    const [status, setStatus] = useState(""); // 保存・復元・出力の結果
+    const [actionError, setActionError] = useState(""); // 失敗時に現在のプレビューと分けて表示する情報
+    const [isBusy, setIsBusy] = useState(false); // 非同期処理中の二重操作を防ぐ状態
+    const [savedImage, setSavedImage] = useState<Blob>(); // 確認用の保存済みPNG
+    const [imageUrl, setImageUrl] = useState(""); // 保存画像を表示する一時参照
     const canvasRef = useRef<HTMLCanvasElement>(null); // 描画対象
     const previewRef = useRef<WebGlPreview | null>(null); // カメラリセットの操作先
     const optionsRef = useRef(options); // 次のフレームで使う最新設定
@@ -22,6 +31,13 @@ export function App() {
     useEffect(() => {
         optionsRef.current = options;
     }, [options]);
+
+    useEffect(() => {
+        if (!savedImage) return;
+        const url = URL.createObjectURL(savedImage); // この画像の表示期間だけ保持する参照
+        setImageUrl(url);
+        return () => URL.revokeObjectURL(url);
+    }, [savedImage]);
 
     useEffect(() => {
         const canvas = canvasRef.current; // マウント済みのキャンバス
@@ -74,11 +90,48 @@ export function App() {
         };
     }, []);
 
+    ////////////////////
+    // 出力・保存の条件を固定し、復元は読込と画像検証に成功した後だけ反映する
+    async function runFrameAction(action: FrameAction): Promise<void> {
+        setIsBusy(true);
+        setStatus("");
+        setActionError("");
+        try {
+            if (action === "restore") {
+                const snapshot = await loadSnapshot(); // 画像まで検証済みの保存値
+                secondsRef.current = snapshot.seconds;
+                optionsRef.current = snapshot.options;
+                setOptions(snapshot.options);
+                setSavedImage(snapshot.image);
+                setStatus("検証データとPNG画像を復元しました。");
+                return;
+            }
+
+            const preview = previewRef.current; // 現在の描画器
+            if (!preview || error) throw new Error("プレビューが利用できません。");
+            const seconds = secondsRef.current; // 出力するフレーム時刻（秒）
+            const image = await preview.capturePng(seconds, options); // 固定した描画結果
+            if (action === "save") {
+                await saveSnapshot(options, seconds, image);
+                setSavedImage(image);
+                setStatus("検証データとPNG画像をブラウザに保存しました。");
+            } else {
+                downloadPng(image);
+                setStatus("透過PNGのダウンロードを開始しました。");
+            }
+        } catch (cause) {
+            setActionError(cause instanceof Error ? cause.message : "検証データの処理に失敗しました。");
+        } finally {
+            setIsBusy(false);
+        }
+    }
+
     return (
         <main className="verification">
-            <p className="verification__label">T01 検証用UI · Phase 2</p>
+            <p className="verification__label">T01 検証用UI · Phase 3</p>
             <h1>VFXCraft</h1>
-            <div className="verification__controls">
+            <fieldset className="verification__controls" disabled={isBusy}>
+                <legend>描画設定</legend>
                 <label>
                     描画方式
                     <select value={options.mode} onChange={(event) => {
@@ -121,11 +174,25 @@ export function App() {
                 {options.mode === "3d" && (
                     <button type="button" onClick={() => previewRef.current?.resetCamera()}>カメラリセット</button>
                 )}
-            </div>
+            </fieldset>
             {error && <p role="alert">描画を開始・継続できません。{error}</p>}
             <canvas ref={canvasRef} aria-label="粒子描画プレビュー"
                 className={options.mode === "pixel" ? "verification__canvas verification__canvas--pixel" : "verification__canvas"} />
             {options.mode === "3d" && <p>左ドラッグで回転、右ドラッグで移動、ホイールでズーム。</p>}
+            <fieldset className="verification__controls" disabled={isBusy}>
+                <legend>保存・出力の検証</legend>
+                <button type="button" onClick={() => void runFrameAction("export")}>透過PNGを出力</button>
+                <button type="button" onClick={() => void runFrameAction("save")}>ブラウザに保存</button>
+                <button type="button" onClick={() => void runFrameAction("restore")}>保存データを復元</button>
+            </fieldset>
+            {status && <p role="status">{status}</p>}
+            {actionError && <p role="alert">{actionError}</p>}
+            {imageUrl && (
+                <figure className="verification__saved-image">
+                    <figcaption>保存された透過PNG</figcaption>
+                    <img src={imageUrl} alt="保存されたパーティクル画像" />
+                </figure>
+            )}
         </main>
     );
 }

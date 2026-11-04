@@ -57,6 +57,8 @@ button:focus-visible {
     gap: 0.75rem 1rem;
     align-items: center;
     margin-block: 1rem;
+    border: 1px solid #494156;
+    min-width: 0;
 }
 
 .verification__controls label {
@@ -79,4 +81,14 @@ button:focus-visible {
 
 .verification__canvas--pixel {
     image-rendering: pixelated;
+}
+
+.verification__saved-image {
+    margin-inline: 0;
+}
+
+.verification__saved-image img {
+    display: block;
+    max-width: 100%;
+    background: repeating-conic-gradient(#d4d0d9 0% 25%, #96909e 0% 50%) 0 0 / 24px 24px;
 }
