@@ -7,9 +7,9 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // 円周方向の偏りを�
 
 ////////////////////
 // 経過秒から粒子の位置と強度を直接評価し、描画FPSへの依存を避ける
-export function evaluateParticle(index: number, seconds: number, emission: Emission, is3d: boolean) {
+export function evaluateParticle(index: number, seconds: number, emission: Emission, is3d: boolean, particleCount = PARTICLE_COUNT) {
     const phase = seconds % CYCLE_SECONDS; // 検証シーン内の時刻（秒）
-    const birth = emission === "burst" ? 0 : (index / PARTICLE_COUNT) * CYCLE_SECONDS; // 発生時刻（秒）
+    const birth = emission === "burst" ? 0 : (index / particleCount) * CYCLE_SECONDS; // 発生時刻（秒）
     const age = (phase - birth + CYCLE_SECONDS) % CYCLE_SECONDS; // 前周期も考慮した寿命内時間（秒）
     const progress = age / LIFETIME_SECONDS; // 寿命に対する進行率
     const angle = index * GOLDEN_ANGLE; // 粒子ごとの発生方向（rad）

@@ -64,7 +64,7 @@ export class WebGlPreview {
 
     ////////////////////
     // 共有素材と固定数のビルボードを用意する
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement, particleCount = PARTICLE_COUNT) {
         this._texture = createParticleTexture();
         try {
             this._renderer = new WebGLRenderer({ canvas, antialias: false, alpha: true });
@@ -80,7 +80,7 @@ export class WebGlPreview {
         this._controls.update();
         this._controls.saveState();
 
-        for (let index = 0; index < PARTICLE_COUNT; index++) {
+        for (let index = 0; index < particleCount; index++) {
             const color = new Color(index % 2 === 0 ? 0x8e55ff : 0x52e7ff); // 2色で重なりを見分ける
             color.multiplyScalar(2); // 明部を発光しきい値より上へ押し上げる
             const material = new SpriteMaterial({
@@ -120,7 +120,7 @@ export class WebGlPreview {
         }
 
         for (const [index, sprite] of this._particles.entries()) {
-            const particle = evaluateParticle(index, seconds, options.emission, is3d); // 同一時刻の粒子状態
+            const particle = evaluateParticle(index, seconds, options.emission, is3d, this._particles.length); // 同一時刻の粒子状態
             if (this._isAdditive !== options.isAdditive) {
                 sprite.material.blending = options.isAdditive ? AdditiveBlending : NormalBlending;
             }
