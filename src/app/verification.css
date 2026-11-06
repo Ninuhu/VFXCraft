@@ -1,0 +1,94 @@
+:root {
+    font-family: system-ui, "Yu Gothic UI", sans-serif;
+    color: #eeedf6;
+    background: #17151f;
+    font-synthesis: none;
+    line-height: 1.7;
+}
+
+body {
+    margin: 0;
+}
+
+/* 検証用画面の可読性だけを整え、製品の固定パネル配置は定義しない。 */
+.verification {
+    max-width: 48rem;
+    margin-inline: auto;
+    padding: clamp(1rem, 5vw, 4rem);
+}
+
+.verification__label {
+    color: #c7a9ff;
+    font-weight: 700;
+}
+
+h1 {
+    font-size: clamp(2rem, 6vw, 3rem);
+    line-height: 1.2;
+}
+
+.verification__note {
+    color: #bdb7cb;
+}
+
+button {
+    font: inherit;
+    font-weight: 700;
+    color: #fff;
+    background: #6d3bc2;
+    border: 1px solid #b994f3;
+    border-radius: 0.5rem;
+    padding: 0.65rem 1.1rem;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #7b46d5;
+}
+
+button:focus-visible {
+    outline: 3px solid #e6d5ff;
+    outline-offset: 4px;
+}
+
+.verification__controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    align-items: center;
+    margin-block: 1rem;
+    border: 1px solid #494156;
+    min-width: 0;
+}
+
+.verification__controls label {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.verification__controls select {
+    font: inherit;
+}
+
+.verification__canvas {
+    display: block;
+    width: min(100%, 640px);
+    aspect-ratio: 16 / 9;
+    height: auto;
+    background: #12101b;
+}
+
+.verification__canvas--pixel {
+    image-rendering: pixelated;
+}
+
+.verification__saved-image {
+    margin-inline: 0;
+}
+
+.verification__saved-image img {
+    display: block;
+    max-width: 100%;
+    background: repeating-conic-gradient(#d4d0d9 0% 25%, #96909e 0% 50%) 0 0 / 24px 24px;
+}

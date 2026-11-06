@@ -10,3 +10,18 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+# ローカル保護コピー
+.local-backups/
+
+# 依存関係・ビルド成果物
+node_modules/
+/dist/
+/build/
+.vite/
+*.tsbuildinfo
+
+# 検証結果・ログ
+/coverage/
+/playwright-report/
+/test-results/
+*.log
