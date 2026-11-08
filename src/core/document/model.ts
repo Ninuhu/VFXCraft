@@ -1,4 +1,4 @@
-export const DOCUMENT_SCHEMA_VERSION = 1; // 論理データの形式版
+export const DOCUMENT_SCHEMA_VERSION = 2; // 論理データの形式版
 export const DEFAULT_PRODUCTION_FPS = 60; // 新規プロジェクトの初期制作FPS
 
 export type Mode = "2d" | "3d";
@@ -40,7 +40,18 @@ export type Layer<M extends Mode = Mode> = {
     readonly content: { readonly kind: "group" } | { readonly kind: "emitter"; readonly emitterId: string };
 };
 
+export type Particle2D = {
+    readonly speed: number;
+    readonly directionDegrees: number;
+    readonly acceleration: Vec2;
+    readonly space: "world" | "local";
+    readonly seed: number;
+    readonly shape: { readonly kind: "point" } | { readonly kind: "circle"; readonly radius: number }
+        | { readonly kind: "rectangle"; readonly width: number; readonly height: number };
+};
+
 export type Emitter = {
+    readonly particle2d?: Particle2D;
     readonly id: string;
     readonly materialId: string;
     readonly lifetimeUs: number;
@@ -81,6 +92,7 @@ type ProjectOf<M extends Mode> = {
 
 export type Project = (ProjectOf<"2d"> & {
     readonly drawing: "normal" | "pixel";
+    readonly pixelScale: number;
     readonly canvasWidth: number;
     readonly canvasHeight: number;
 }) | ProjectOf<"3d">;

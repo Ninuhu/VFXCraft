@@ -1,4 +1,4 @@
-import type { Asset, Layer, LayerValues, Mode, Project, Track, TrackValue } from "../document/model.ts";
+import type { Emitter, Asset, Layer, LayerValues, Mode, Project, Track, TrackValue } from "../document/model.ts";
 import { DocumentValidationError, validateProject } from "../document/validateDocument.ts";
 import { shareValidatedProject } from "./snapshot.ts";
 
@@ -8,6 +8,8 @@ type TrackTarget = Pick<Track, "layerId" | "property">;
 type Keyframe = { readonly offsetUs: number; readonly value: TrackValue };
 
 export type EditCommand =
+    | { readonly kind: "emitter.update"; readonly emitterId: string; readonly settings: Pick<Emitter, "emission" | "lifetimeUs" | "particle2d"> }
+    | { readonly kind: "drawing.update"; readonly drawing: "normal" | "pixel"; readonly pixelScale: number }
     | { readonly kind: "layer.add"; readonly layer: Layer }
     | { readonly kind: "layer.remove"; readonly layerId: string }
     | { readonly kind: "layer.update"; readonly layerId: string; readonly patch: LayerPatch }
@@ -70,6 +72,16 @@ function editKeys(project: Project, command: KeyCommand): unknown {
 // 元の文書を変更せずに編集候補を組み立てる
 function createCandidate(project: Project, command: EditCommand): unknown {
     switch (command.kind) {
+        case "emitter.update": {
+            const emitter = findEntity(project.emitters, command.emitterId, "command.emitterId"); // 設定変更対象
+            if (Object.keys(command.settings).some((key) => !["emission", "lifetimeUs", "particle2d"].includes(key))) {
+                throw new DocumentValidationError("command.settings", "未対応の発生器設定です。");
+            }
+            return { ...project, emitters: project.emitters.map((item) => item === emitter ? { ...item, ...command.settings } : item) };
+        }
+        case "drawing.update":
+            if (project.mode !== "2d") throw new DocumentValidationError("command", "2D専用の描画設定です。");
+            return { ...project, drawing: command.drawing, pixelScale: command.pixelScale };
         case "layer.add":
             return { ...project, layers: [...project.layers, command.layer] };
         case "layer.remove": {

@@ -38,7 +38,11 @@ export class ProjectFileFlow {
     }
 
     ////////////////////
-    // 現在の文書と履歴から参照されなくなった画像を回収する
+    // 描画側に不変の素材Blobを渡す
+    public getImage(id: string): Blob | undefined { return this._images.get(id.toLowerCase()); }
+
+    ////////////////////
+    // 履歴から不要になった素材を回収する
     public collectImages(): void {
         const retained = this.history.getRetainedAssetIds(); // Undo、Redoとプレビューを含む
         for (const id of this._images.keys()) if (!retained.has(id)) this._images.delete(id);

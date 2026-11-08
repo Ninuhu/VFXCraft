@@ -10,8 +10,8 @@ type Pending = { file: File; target?: FileTarget };
 
 ////////////////////
 // T04の保存と読込を既存の描画検証から独立した画面で確認する
-export function VcrReview() {
-    const [flow] = useState(() => new ProjectFileFlow(createProject({ id: crypto.randomUUID(), name: "T04 sample",
+export function VcrReview({ session, onChange }: { session?: ProjectFileFlow; onChange?: () => void } = {}) {
+    const [flow] = useState(() => session ?? new ProjectFileFlow(createProject({ id: crypto.randomUUID(), name: "T04 sample",
         mode: "2d", drawing: "normal", canvasWidth: 640, canvasHeight: 360, durationUs: 2_000_000 }),
     REVIEW_VCR_LIMITS, verifyBrowserImage, packageInfo.version)); // 検証セッション
     const [, refresh] = useState(0); // 履歴の表示更新用
@@ -39,6 +39,7 @@ export function VcrReview() {
         finally {
             setBusy(false);
             refresh((value) => value + 1);
+            onChange?.();
         }
     }
 
@@ -120,8 +121,8 @@ export function VcrReview() {
                 event.currentTarget.value = "";
                 if (file) void run(() => addImage(file));
             }} /></label>
-            <button disabled={!flow.history.canUndo} onClick={() => { flow.history.undo(); refresh((value) => value + 1); }}>Undo</button>
-            <button disabled={!flow.history.canRedo} onClick={() => { flow.history.redo(); refresh((value) => value + 1); }}>Redo</button>
+            <button disabled={!flow.history.canUndo} onClick={() => { flow.history.undo(); refresh((value) => value + 1); onChange?.(); }}>Undo</button>
+            <button disabled={!flow.history.canRedo} onClick={() => { flow.history.redo(); refresh((value) => value + 1); onChange?.(); }}>Redo</button>
             <ul>{project.assets.map((asset) => <li key={asset.id}>{asset.name} ({asset.width}×{asset.height})</li>)}</ul>
         </fieldset>
         <p role="status">{message}</p>

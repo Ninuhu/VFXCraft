@@ -1,5 +1,5 @@
 import {
-    DOCUMENT_SCHEMA_VERSION, type Asset, type Emitter, type Layer, type LinearRgb,
+    DOCUMENT_SCHEMA_VERSION, type Asset, type Particle2D, type Emitter, type Layer, type LinearRgb,
     type Material, type Mode, type Preset, type Project, type Quaternion, type Track,
     type TrackProperty, type TrackValue, type Vec2, type Vec3,
 } from "./model.ts";
@@ -8,6 +8,30 @@ import { isNonNegativeSafeInteger, isProductionFps } from "./time.ts";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i; // UUIDの版とvariant
 const PROPERTIES = ["position", "rotation", "size", "color", "opacity"] as const; // 基本キーの対象
+export const DEFAULT_PARTICLE_2D: Particle2D = Object.freeze({
+    speed: 0, directionDegrees: 0, acceleration: Object.freeze([0, 0] as const),
+    space: "local", seed: 1, shape: Object.freeze({ kind: "point" }),
+}); // 初版文書を再編集する際の既定値
+
+////////////////////
+// 2Dの運動と発生形状を検証する
+function readParticle2D(value: unknown, path: string): Particle2D {
+    const input = record(value, path, ["speed", "directionDegrees", "acceleration", "space", "seed", "shape"]); // 設定候補
+    const shape = record(input.shape, path + ".shape", ["kind", "radius", "width", "height"]); // 形状候補
+    const kind = choice(shape.kind, path + ".shape.kind", ["point", "circle", "rectangle"]); // 形状種別
+    const allowed = kind === "point" ? ["kind"] : kind === "circle" ? ["kind", "radius"] : ["kind", "width", "height"]; // 種別固有項目
+    record(shape, path + ".shape", allowed);
+    return {
+        speed: number(input.speed, path + ".speed", 0),
+        directionDegrees: number(input.directionDegrees, path + ".directionDegrees"),
+        acceleration: components(input.acceleration, path + ".acceleration", 2) as unknown as Vec2,
+        space: choice(input.space, path + ".space", ["world", "local"]),
+        seed: integer(input.seed, path + ".seed", 0, 0xffffffff),
+        shape: kind === "point" ? { kind } : kind === "circle"
+            ? { kind, radius: number(shape.radius, path + ".shape.radius", 0) }
+            : { kind, width: number(shape.width, path + ".shape.width", 0), height: number(shape.height, path + ".shape.height", 0) },
+    };
+}
 const PROJECT_FIELDS = ["schemaVersion", "mode", "id", "name", "durationUs", "productionFps", "layers",
     "emitters", "materials", "tracks", "assets"]; // 両モードに共通する項目
 
@@ -160,7 +184,7 @@ function readLayer(value: unknown, path: string, mode: Mode, durationUs: number)
 ////////////////////
 // 発生方式と材質参照を読み込む
 function readEmitter(value: unknown, path: string): Emitter {
-    const emitter = record(value, path, ["id", "materialId", "lifetimeUs", "emission"]); // 発生器候補
+    const emitter = record(value, path, ["id", "materialId", "lifetimeUs", "emission", "particle2d"]); // 発生器候補
     const emissionPath = `${path}.emission`; // 発生設定の位置
     const emission = record(emitter.emission, emissionPath, ["kind", "ratePerSecond", "count"]); // 発生設定候補
     const kind = choice(emission.kind, `${emissionPath}.kind`, ["continuous", "burst"]); // 発生方式
@@ -169,6 +193,7 @@ function readEmitter(value: unknown, path: string): Emitter {
     }
     return {
         id: id(emitter.id, `${path}.id`), materialId: id(emitter.materialId, `${path}.materialId`),
+        ...(emitter.particle2d === undefined ? {} : { particle2d: readParticle2D(emitter.particle2d, path + ".particle2d") }),
         lifetimeUs: integer(emitter.lifetimeUs, `${path}.lifetimeUs`, 1),
         emission: kind === "continuous"
             ? { kind, ratePerSecond: number(emission.ratePerSecond, `${emissionPath}.ratePerSecond`, 0) }
@@ -293,8 +318,8 @@ function validateReferences(project: Project, path: string): void {
 ////////////////////
 // 外部入力を検証し、独立した編集文書を返す
 export function validateProject(value: unknown, path = "project"): Project {
-    const input = record(value, path, [...PROJECT_FIELDS, "drawing", "canvasWidth", "canvasHeight"]); // 文書候補
-    if (input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
+    const input = record(value, path, [...PROJECT_FIELDS, "drawing", "canvasWidth", "canvasHeight", "pixelScale"]); // 文書候補
+    if (input.schemaVersion !== 1 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
     const mode = choice(input.mode, `${path}.mode`, ["2d", "3d"]); // 文書の編集モード
     if (!isProductionFps(input.productionFps)) fail(`${path}.productionFps`, "制作FPSが不正です。");
     const durationUs = integer(input.durationUs, `${path}.durationUs`, 1); // 制作尺（µs）
@@ -302,17 +327,22 @@ export function validateProject(value: unknown, path = "project"): Project {
         schemaVersion: DOCUMENT_SCHEMA_VERSION, mode, durationUs, productionFps: input.productionFps,
         id: id(input.id, `${path}.id`), name: name(input.name, `${path}.name`),
         layers: list(input.layers, `${path}.layers`, (item, location) => readLayer(item, location, mode, durationUs)),
-        emitters: list(input.emitters, `${path}.emitters`, readEmitter),
+        emitters: list(input.emitters, `${path}.emitters`, (item, location) => {
+            const emitter = readEmitter(item, location); // 検証した発生器
+            if (mode === "3d" && emitter.particle2d) fail(location, "3D文書に2D設定は指定できません。");
+            return mode === "2d" ? { ...emitter, particle2d: emitter.particle2d ?? DEFAULT_PARTICLE_2D } : emitter;
+        }),
         materials: list(input.materials, `${path}.materials`, readMaterial),
         tracks: list(input.tracks, `${path}.tracks`, (item, location) => readTrack(item, location, mode)),
         assets: list(input.assets, `${path}.assets`, readAsset),
     } as const; // 指定モードで読み込んだ共通項目
-    if (mode === "3d" && ["drawing", "canvasWidth", "canvasHeight"].some((field) => Object.hasOwn(input, field))) {
+    if (mode === "3d" && ["drawing", "canvasWidth", "canvasHeight", "pixelScale"].some((field) => Object.hasOwn(input, field))) {
         fail(path, "3D文書に2D描画設定は指定できません。");
     }
     // レイヤーとキーは共通のmodeを用いて読み込んだため、モードと値型は一致している。
     const project = (mode === "3d" ? common : {
         ...common,
+        pixelScale: input.pixelScale === undefined ? 2 : integer(input.pixelScale, path + ".pixelScale", 1, 64),
         drawing: choice(input.drawing, `${path}.drawing`, ["normal", "pixel"]),
         canvasWidth: integer(input.canvasWidth, `${path}.canvasWidth`, 1),
         canvasHeight: integer(input.canvasHeight, `${path}.canvasHeight`, 1),
@@ -325,7 +355,7 @@ export function validateProject(value: unknown, path = "project"): Project {
 // 独立したテンプレート文書を読み、必要素材の宣言が内部で解決できることを確認する
 export function validatePreset(value: unknown): Preset {
     const input = record(value, "preset", ["schemaVersion", "id", "name", "template", "requiredAssetIds"]); // プリセット候補
-    if (input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
+    if (input.schemaVersion !== 1 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
     const template = validateProject(input.template, "preset.template"); // 独立した参照スコープ
     const assets = new Set(template.assets.map((asset) => asset.id.toLowerCase())); // テンプレートの素材ID
     const declared = new Set<string>(); // すでに宣言した必要素材
