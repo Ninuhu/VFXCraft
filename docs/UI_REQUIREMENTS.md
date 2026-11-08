@@ -125,3 +125,6 @@ UIの実装前に、対象モード、状態ごとの表示、操作結果、日
 ### T10のショートカット初期候補
 
 新規 Ctrl+Alt+N、開く Ctrl+Alt+O、保存 Ctrl+S、名前を付けて保存 Ctrl+Shift+S、Undo Ctrl+Z、Redo Ctrl+Y／Ctrl+Shift+Z、複製 Ctrl+D、削除 Delete、名前変更 F2、グループ化 Ctrl+G、解除 Ctrl+Shift+G、再生・一時停止 Space、1フレーム移動 左右矢印、キー追加 I、選択・移動・回転・拡縮 Q／W／E／R、全体表示 F、視点リセット Shift+R、編集軸 X、位置スナップ Shift+G、レイヤー・インスペクター・タイムラインの表示 Alt+Shift+1／2／3。複製の指定を含め、ブラウザとOSの競合、入力欄・IME、再割り当ての重複と永続化を検証する。
+
+## T05の検証UI
+?particles-review は描画・発生・空間・品質・保存の開発用画面。正式UI v1.0への本格統合はT10。
