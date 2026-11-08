@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json",
-    "test": "node --test tests/t01-particles.test.mjs tests/t01-storage-and-png.test.mjs tests/t02-document.test.mjs tests/t03-editing.test.mjs tests/t04-vcr.test.mjs tests/t05-particles.test.mjs",
+    "test": "node --test tests/t01-particles.test.mjs tests/t01-storage-and-png.test.mjs tests/t02-document.test.mjs tests/t03-editing.test.mjs tests/t04-vcr.test.mjs tests/t05-particles.test.mjs tests/t06-3d.test.mjs",
     "test:e2e": "playwright test",
     "build": "pnpm typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort"

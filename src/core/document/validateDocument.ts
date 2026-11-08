@@ -1,5 +1,5 @@
 import {
-    DOCUMENT_SCHEMA_VERSION, type Asset, type Particle2D, type Emitter, type Layer, type LinearRgb,
+    DOCUMENT_SCHEMA_VERSION, type Asset, type Particle2D, type Particle3D, type Emitter, type Layer, type LinearRgb,
     type Material, type Mode, type Preset, type Project, type Quaternion, type Track,
     type TrackProperty, type TrackValue, type Vec2, type Vec3,
 } from "./model.ts";
@@ -8,6 +8,26 @@ import { isNonNegativeSafeInteger, isProductionFps } from "./time.ts";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i; // UUIDの版とvariant
 const PROPERTIES = ["position", "rotation", "size", "color", "opacity"] as const; // 基本キーの対象
+export const DEFAULT_PARTICLE_3D: Particle3D = Object.freeze({
+    speed: 0, direction: Object.freeze([0, 1, 0] as const), acceleration: Object.freeze([0, 0, 0] as const),
+    space: "local", seed: 1, shape: "point", billboard: "camera",
+}); // 旧3D文書には静止・点発生・全面追従を補う
+
+////////////////////
+// 3Dの方向を有限・非ゼロのベクトルとして保持し、評価時に単位化する
+function readParticle3D(value: unknown, path: string): Particle3D {
+    const input = record(value, path, ["speed", "direction", "acceleration", "space", "seed", "shape", "billboard"]); // 設定候補
+    const direction = components(input.direction, path + ".direction", 3) as unknown as Vec3; // 方向ベクトル
+    if (direction.every((component) => component === 0)) fail(path + ".direction", "方向はゼロにできません。");
+    return {
+        speed: number(input.speed, path + ".speed", 0), direction,
+        acceleration: components(input.acceleration, path + ".acceleration", 3) as unknown as Vec3,
+        space: choice(input.space, path + ".space", ["world", "local"]),
+        seed: integer(input.seed, path + ".seed", 0, 0xffffffff),
+        shape: choice(input.shape, path + ".shape", ["point"]),
+        billboard: choice(input.billboard, path + ".billboard", ["camera", "world-y"]),
+    };
+}
 export const DEFAULT_PARTICLE_2D: Particle2D = Object.freeze({
     speed: 0, directionDegrees: 0, acceleration: Object.freeze([0, 0] as const),
     space: "local", seed: 1, shape: Object.freeze({ kind: "point" }),
@@ -184,7 +204,7 @@ function readLayer(value: unknown, path: string, mode: Mode, durationUs: number)
 ////////////////////
 // 発生方式と材質参照を読み込む
 function readEmitter(value: unknown, path: string): Emitter {
-    const emitter = record(value, path, ["id", "materialId", "lifetimeUs", "emission", "particle2d"]); // 発生器候補
+    const emitter = record(value, path, ["id", "materialId", "lifetimeUs", "emission", "particle2d", "particle3d"]); // 発生器候補
     const emissionPath = `${path}.emission`; // 発生設定の位置
     const emission = record(emitter.emission, emissionPath, ["kind", "ratePerSecond", "count"]); // 発生設定候補
     const kind = choice(emission.kind, `${emissionPath}.kind`, ["continuous", "burst"]); // 発生方式
@@ -194,6 +214,7 @@ function readEmitter(value: unknown, path: string): Emitter {
     return {
         id: id(emitter.id, `${path}.id`), materialId: id(emitter.materialId, `${path}.materialId`),
         ...(emitter.particle2d === undefined ? {} : { particle2d: readParticle2D(emitter.particle2d, path + ".particle2d") }),
+        ...(emitter.particle3d === undefined ? {} : { particle3d: readParticle3D(emitter.particle3d, path + ".particle3d") }),
         lifetimeUs: integer(emitter.lifetimeUs, `${path}.lifetimeUs`, 1),
         emission: kind === "continuous"
             ? { kind, ratePerSecond: number(emission.ratePerSecond, `${emissionPath}.ratePerSecond`, 0) }
@@ -319,7 +340,7 @@ function validateReferences(project: Project, path: string): void {
 // 外部入力を検証し、独立した編集文書を返す
 export function validateProject(value: unknown, path = "project"): Project {
     const input = record(value, path, [...PROJECT_FIELDS, "drawing", "canvasWidth", "canvasHeight", "pixelScale"]); // 文書候補
-    if (input.schemaVersion !== 1 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
+    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
     const mode = choice(input.mode, `${path}.mode`, ["2d", "3d"]); // 文書の編集モード
     if (!isProductionFps(input.productionFps)) fail(`${path}.productionFps`, "制作FPSが不正です。");
     const durationUs = integer(input.durationUs, `${path}.durationUs`, 1); // 制作尺（µs）
@@ -330,7 +351,9 @@ export function validateProject(value: unknown, path = "project"): Project {
         emitters: list(input.emitters, `${path}.emitters`, (item, location) => {
             const emitter = readEmitter(item, location); // 検証した発生器
             if (mode === "3d" && emitter.particle2d) fail(location, "3D文書に2D設定は指定できません。");
-            return mode === "2d" ? { ...emitter, particle2d: emitter.particle2d ?? DEFAULT_PARTICLE_2D } : emitter;
+            if (mode === "2d" && emitter.particle3d) fail(location, "2D文書に3D設定は指定できません。");
+            return mode === "2d" ? { ...emitter, particle2d: emitter.particle2d ?? DEFAULT_PARTICLE_2D }
+                : { ...emitter, particle3d: emitter.particle3d ?? DEFAULT_PARTICLE_3D };
         }),
         materials: list(input.materials, `${path}.materials`, readMaterial),
         tracks: list(input.tracks, `${path}.tracks`, (item, location) => readTrack(item, location, mode)),
@@ -355,7 +378,7 @@ export function validateProject(value: unknown, path = "project"): Project {
 // 独立したテンプレート文書を読み、必要素材の宣言が内部で解決できることを確認する
 export function validatePreset(value: unknown): Preset {
     const input = record(value, "preset", ["schemaVersion", "id", "name", "template", "requiredAssetIds"]); // プリセット候補
-    if (input.schemaVersion !== 1 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
+    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
     const template = validateProject(input.template, "preset.template"); // 独立した参照スコープ
     const assets = new Set(template.assets.map((asset) => asset.id.toLowerCase())); // テンプレートの素材ID
     const declared = new Set<string>(); // すでに宣言した必要素材

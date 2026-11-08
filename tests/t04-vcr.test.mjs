@@ -85,7 +85,7 @@ test("破損・未知コンテナ版・未知スキーマ版・暗号化・不�
     await assert.rejects(readVcr(new Blob([crcDamaged]), LIMITS, verify), /signature|CRC/i);
     await assert.rejects(readVcr(good.slice(0, -8), LIMITS, verify));
     await assert.rejects(readVcr(await zip([["metadata.json", { ...metadata, containerVersion: 2 }], ["project.json", doc]]), LIMITS, verify), /コンテナ版/);
-    await assert.rejects(readVcr(await zip([["metadata.json", metadata], ["project.json", { ...doc, schemaVersion: 3 }]]), LIMITS, verify), /スキーマ版/);
+    await assert.rejects(readVcr(await zip([["metadata.json", metadata], ["project.json", { ...doc, schemaVersion: 4 }]]), LIMITS, verify), /スキーマ版/);
     await assert.rejects(readVcr(await zip([["metadata.json", metadata], ["project.json", doc]], { password: "test" }), LIMITS, verify));
     await assert.rejects(readVcr(await zip([["metadata.json", metadata], ["project.json", doc], ["other.json", {}]]), LIMITS, verify), /エントリ/);
     const duplicate = Buffer.from(await (await zip([["metadata.json", metadata], ["project.json", doc], ["another.json", {}]])).arrayBuffer()); // 正常ZIPを重複名に改変

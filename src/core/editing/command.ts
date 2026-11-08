@@ -8,7 +8,7 @@ type TrackTarget = Pick<Track, "layerId" | "property">;
 type Keyframe = { readonly offsetUs: number; readonly value: TrackValue };
 
 export type EditCommand =
-    | { readonly kind: "emitter.update"; readonly emitterId: string; readonly settings: Pick<Emitter, "emission" | "lifetimeUs" | "particle2d"> }
+    | { readonly kind: "emitter.update"; readonly emitterId: string; readonly settings: Pick<Emitter, "emission" | "lifetimeUs" | "particle2d" | "particle3d"> }
     | { readonly kind: "drawing.update"; readonly drawing: "normal" | "pixel"; readonly pixelScale: number }
     | { readonly kind: "layer.add"; readonly layer: Layer }
     | { readonly kind: "layer.remove"; readonly layerId: string }
@@ -74,7 +74,7 @@ function createCandidate(project: Project, command: EditCommand): unknown {
     switch (command.kind) {
         case "emitter.update": {
             const emitter = findEntity(project.emitters, command.emitterId, "command.emitterId"); // 設定変更対象
-            if (Object.keys(command.settings).some((key) => !["emission", "lifetimeUs", "particle2d"].includes(key))) {
+            if (Object.keys(command.settings).some((key) => !["emission", "lifetimeUs", "particle2d", "particle3d"].includes(key))) {
                 throw new DocumentValidationError("command.settings", "未対応の発生器設定です。");
             }
             return { ...project, emitters: project.emitters.map((item) => item === emitter ? { ...item, ...command.settings } : item) };

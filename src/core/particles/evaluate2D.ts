@@ -1,4 +1,5 @@
 import type { LayerValues, Project, Vec2 } from "../document/model.ts";
+import { emissionWindow } from "./emission.ts";
 import { evaluateLayerTrack } from "../document/evaluateTrack.ts";
 import { isNonNegativeSafeInteger, MICROS_PER_SECOND } from "../document/time.ts";
 
@@ -7,7 +8,7 @@ export type Matrix2D = readonly [number, number, number, number, number, number]
 export type ParticleSample = { readonly id: number; readonly position: Vec2; readonly age: number };
 export type TransformAt = (timeUs: number) => Matrix2D;
 const IDENTITY: Matrix2D = [1, 0, 0, 1, 0, 0]; // 親のない座標の単位行列
-const MAX_EVALUATED_PARTICLES = 200_000; // 応答停止を避ける評価時の防御上限
+
 
 ////////////////////
 // 座標を2Dアフィン行列で変換する
@@ -72,13 +73,7 @@ export function evaluateParticles2D(project: Project2D, layerId: string, timeUs:
     const elapsed = timeUs - layer.startUs; // レイヤー開始からの時刻
     if (elapsed < 0) return [];
     const settings = emitter.particle2d; // 2D運動と発生空間
-    const rate = emitter.emission.kind === "continuous" ? emitter.emission.ratePerSecond : 0; // 秒あたりの発生数
-    if (emitter.emission.kind === "continuous" && rate === 0) return [];
-    const first = emitter.emission.kind === "burst" ? 0 : Math.max(0, Math.floor((elapsed - emitter.lifetimeUs) / MICROS_PER_SECOND * rate) + 1); // 寿命境界は除外
-    const last = emitter.emission.kind === "burst" ? emitter.emission.count - 1 : Math.floor(elapsed / MICROS_PER_SECOND * rate); // 時刻0の粒子を含む
-    if (!Number.isSafeInteger(last) || !Number.isSafeInteger(first) || last-first+1 > MAX_EVALUATED_PARTICLES) {
-        throw new RangeError("粒子数が検証用の安全上限を超えています。");
-    }
+    const { first, last, rate } = emissionWindow(emitter, elapsed); // 2D・3D共通の発生境界
     const current = settings.space === "local" ? transformAt(timeUs) : IDENTITY; // ローカル粒子だけ現在の変換に追従
     const radians = settings.directionDegrees * Math.PI / 180; // X正方向が0度、時計回り
     const velocity: Vec2 = [Math.cos(radians)*settings.speed, Math.sin(radians)*settings.speed]; // 初速
