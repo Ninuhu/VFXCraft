@@ -1,4 +1,4 @@
-export const DOCUMENT_SCHEMA_VERSION = 2; // 論理データの形式版
+export const DOCUMENT_SCHEMA_VERSION = 3; // 論理データの形式版
 export const DEFAULT_PRODUCTION_FPS = 60; // 新規プロジェクトの初期制作FPS
 
 export type Mode = "2d" | "3d";
@@ -50,7 +50,18 @@ export type Particle2D = {
         | { readonly kind: "rectangle"; readonly width: number; readonly height: number };
 };
 
+export type Particle3D = {
+    readonly speed: number;
+    readonly direction: Vec3;
+    readonly acceleration: Vec3;
+    readonly space: "world" | "local";
+    readonly seed: number;
+    readonly shape: "point";
+    readonly billboard: "camera" | "world-y";
+};
+
 export type Emitter = {
+    readonly particle3d?: Particle3D;
     readonly particle2d?: Particle2D;
     readonly id: string;
     readonly materialId: string;
