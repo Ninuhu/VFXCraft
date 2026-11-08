@@ -43,7 +43,8 @@ export function Particle3DReview() {
     const [message, setMessage] = useState(""); // 無効入力とファイル操作の説明
     const stats = useRef<HTMLParagraphElement>(null); // 毎フレームの表示更新先
     const project = flow.history.preview; // 連続入力中の有効な候補も表示する
-    const layer = project.layers[selected]; // 選択レイヤー
+    const selectedIndex = project.layers[selected] ? selected : 0; // 読込後に以前の選択番号が存在しない場合は先頭へ
+    const layer = project.layers[selectedIndex]; // 選択レイヤー
     const content = layer?.content; // 発生器の参照
     const emitter = content?.kind === "emitter" ? project.emitters.find((item) => item.id.toLowerCase() === content.emitterId.toLowerCase()) : undefined; // 選択発生器
     const settings = emitter?.particle3d; // 3D設定
@@ -132,7 +133,7 @@ export function Particle3DReview() {
         <button onClick={() => { try { const current = flow.history.preview; // ボタン操作時の正確なプレイヘッドを評価
             if (current.mode === "3d") renderer.current?.draw(current, time.current); else renderer.current?.clear();
             setMessage(renderer.current?.frame() ? "" : "現在時刻には粒子がありません。"); } catch (error) { setMessage(String(error)); } }}>全体表示</button>
-        <label>編集レイヤー<select aria-label="編集レイヤー" value={selected} onChange={(event) => { finish(); setSelected(Number(event.currentTarget.value)); }}>
+        <label>編集レイヤー<select aria-label="編集レイヤー" value={selectedIndex} onChange={(event) => { finish(); setSelected(Number(event.currentTarget.value)); }}>
             {project.layers.map((entry, index) => <option key={entry.id} value={index}>{entry.name}</option>)}</select></label>
         {emitter && settings && <fieldset><legend>3D発生器（形状は点）</legend>
             <label>発生方式<select aria-label="発生方式" value={emitter.emission.kind} onChange={(event) =>
