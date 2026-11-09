@@ -180,7 +180,7 @@ test("初版3D・T05版を読み込み、T06設定を保存往復できる", asy
     const verify = async () => {}; // 実画像のデコードは既存E2Eで検証する
     const old = await readFile(new URL("./fixtures/vcr/t04-3d-v1.vcr", import.meta.url)); // 固定の初版
     const loaded = await readVcr(new Blob([old]), REVIEW_VCR_LIMITS, verify); // 現行への移行
-    assert.equal(loaded.project.schemaVersion, 3);
+    assert.equal(loaded.project.schemaVersion, 4);
     const oldV2 = await readFile(new URL("./fixtures/vcr/t05-2d-v2.vcr", import.meta.url)); // 版2の固定検体
     assert.equal((await readVcr(new Blob([oldV2]), REVIEW_VCR_LIMITS, verify)).project.mode, "2d");
     const doc = fixture({ billboard: "world-y", space: "world" }); // 現行設定
@@ -189,7 +189,7 @@ test("初版3D・T05版を読み込み、T06設定を保存往復できる", asy
     const migrated = validateProject({ ...doc, schemaVersion: 2, emitters: doc.emitters.map(({ particle3d, ...rest }) => rest) }); // 旧版の3D発生器
     assert.equal(migrated.emitters[0].particle3d.billboard, "camera");
     assert.equal(migrated.emitters[0].particle3d.speed, 0);
-    assert.throws(() => validateProject({ ...doc, schemaVersion: 4 }));
+    assert.throws(() => validateProject({ ...doc, schemaVersion: 5 }));
 });
 
 test("壊れたファイルと保存中の追加編集でも3D文書と履歴を保護する", async () => {

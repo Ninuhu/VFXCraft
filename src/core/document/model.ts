@@ -1,4 +1,4 @@
-export const DOCUMENT_SCHEMA_VERSION = 3; // 論理データの形式版
+export const DOCUMENT_SCHEMA_VERSION = 4; // 論理データの形式版
 export const DEFAULT_PRODUCTION_FPS = 60; // 新規プロジェクトの初期制作FPS
 
 export type Mode = "2d" | "3d";
@@ -70,10 +70,34 @@ export type Emitter = {
         | { readonly kind: "burst"; readonly count: number };
 };
 
+export type GradientStop<T> = { readonly offset: number; readonly value: T };
+export type Gradient = {
+    readonly colors: readonly GradientStop<LinearRgb>[];
+    readonly alphas: readonly GradientStop<number>[];
+};
+export type MaterialAppearance = {
+    readonly opacity: number;
+    readonly lifetime: Gradient;
+    readonly spatial: Gradient;
+    readonly bloomStrength: number;
+};
+export type BackgroundSettings = {
+    readonly color: LinearRgb;
+    readonly checker: boolean;
+    readonly grid: boolean;
+    readonly gridOpacity: number;
+};
+export type ProjectPreview = {
+    readonly background: Partial<BackgroundSettings>;
+    readonly bloom: { readonly radius: number; readonly threshold: number };
+    readonly pixelBloom: "pixel" | "smooth";
+};
+
 export type Material = {
+    readonly appearance?: MaterialAppearance;
     readonly id: string;
     readonly textureAssetId: string | null;
-    readonly blend: "alpha" | "additive";
+    readonly blend: "alpha" | "additive" | "multiply";
     readonly color: LinearRgb;
     readonly hasBloom: boolean;
     readonly gradient: readonly { readonly offset: number; readonly color: LinearRgb }[];
@@ -88,6 +112,7 @@ export type Asset = {
 };
 
 type ProjectOf<M extends Mode> = {
+    readonly preview?: ProjectPreview;
     readonly schemaVersion: typeof DOCUMENT_SCHEMA_VERSION;
     readonly mode: M;
     readonly id: string;
