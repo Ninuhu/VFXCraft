@@ -8,7 +8,10 @@ import { normalizeQuaternion } from "./rotation.ts";
 import { isNonNegativeSafeInteger, isProductionFps } from "./time.ts";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i; // UUIDの版とvariant
-const PROPERTIES = ["position", "rotation", "size", "color", "opacity"] as const; // 基本キーの対象
+import { EMITTER_TRACK_PROPERTIES } from "./model.ts";
+
+const PROPERTIES = ["position", "rotation", "size", "color", "opacity"] as const; // レイヤーの基準値
+const TRACK_PROPERTIES = [...PROPERTIES, ...EMITTER_TRACK_PROPERTIES] as const; // 全キー対象
 export const DEFAULT_PARTICLE_3D: Particle3D = Object.freeze({
     speed: 0, direction: Object.freeze([0, 1, 0] as const), acceleration: Object.freeze([0, 0, 0] as const),
     space: "local", seed: 1, shape: "point", billboard: "camera",
@@ -54,7 +57,7 @@ function readParticle2D(value: unknown, path: string): Particle2D {
     };
 }
 const PROJECT_FIELDS = ["schemaVersion", "mode", "id", "name", "durationUs", "productionFps", "layers",
-    "emitters", "materials", "tracks", "assets"]; // 両モードに共通する項目
+    "emitters", "materials", "tracks", "assets", "allowOutsideKeys"]; // 両モードに共通する項目
 
 type EntityKind = "project" | "layer" | "emitter" | "material" | "asset";
 
@@ -161,14 +164,28 @@ function color(value: unknown, path: string): LinearRgb {
 // モードとプロパティに対応する値を検証する
 function trackValue(value: unknown, path: string, mode: Mode, property: TrackProperty): TrackValue {
     switch (property) {
-        case "opacity": return number(value, path, 0, 1);
-        case "color": return color(value, path);
+        case "opacity":
+        case "materialOpacity": return number(value, path, 0, 1);
+        case "color":
+        case "materialColor": return color(value, path);
+        case "rate": return number(value, path, 0, 1_000_000);
+        case "speed":
+        case "particleSize": return number(value, path, 0);
+        case "bloomStrength": return number(value, path, 0, 8);
+        case "lifetimeUs": return integer(value, path, 1);
+        case "direction": {
+            if (mode === "2d") return number(value, path);
+            const direction = components(value, path, 3) as unknown as Vec3; // 正規化は運動評価時
+            if (direction.every((component) => component === 0)) fail(path, "発生方向をゼロにはできません。");
+            return direction;
+        }
         case "rotation": {
             if (mode === "2d") return number(value, path);
             const quaternion = components(value, path, 4) as unknown as Quaternion; // 有限の四成分
             if (quaternion.every((component) => component === 0)) fail(path, "ゼロ長Quaternionです。");
             return normalizeQuaternion(quaternion);
         }
+        case "acceleration":
         case "position":
         case "size":
             return components(value, path, mode === "2d" ? 2 : 3,
@@ -179,18 +196,21 @@ function trackValue(value: unknown, path: string, mode: Mode, property: TrackPro
 ////////////////////
 // レイヤーの階層情報とモード別の基準値を読み込む
 function readLayer(value: unknown, path: string, mode: Mode, durationUs: number): Layer {
-    const layer = record(value, path, ["id", "name", "parentId", "order", "isVisible", "isLocked", "startUs", "values", "content"]); // レイヤー候補
+    const layer = record(value, path, ["id", "name", "parentId", "order", "isVisible", "isLocked", "startUs", "emissionEndUs", "values", "content"]); // レイヤー候補
     const values = record(layer.values, `${path}.values`, PROPERTIES); // 基準値の候補
     const contentPath = `${path}.content`; // コンテンツ種別の位置
     const content = record(layer.content, contentPath, ["kind", "emitterId"]); // コンテンツ候補
     const kind = choice(content.kind, `${contentPath}.kind`, ["group", "emitter"]); // 内容の種別
     if (kind === "group" && Object.hasOwn(content, "emitterId")) fail(contentPath, "グループに発生器は指定できません。");
+    const startUs = integer(layer.startUs, path + ".startUs", 0, durationUs - 1); // 発生開始
+    if (kind === "group" && Object.hasOwn(layer, "emissionEndUs")) fail(path + ".emissionEndUs", "グループに発生終了は指定できません。");
     return {
         id: id(layer.id, `${path}.id`), name: name(layer.name, `${path}.name`),
         parentId: layer.parentId === null ? null : id(layer.parentId, `${path}.parentId`),
         order: integer(layer.order, `${path}.order`),
         isVisible: flag(layer.isVisible, `${path}.isVisible`), isLocked: flag(layer.isLocked, `${path}.isLocked`),
-        startUs: integer(layer.startUs, `${path}.startUs`, 0, durationUs - 1),
+        startUs,
+        ...(Object.hasOwn(layer, "emissionEndUs") ? { emissionEndUs: integer(layer.emissionEndUs, path + ".emissionEndUs", startUs) } : {}),
         values: {
             position: trackValue(values.position, `${path}.values.position`, mode, "position") as Vec2 | Vec3,
             rotation: trackValue(values.rotation, `${path}.values.rotation`, mode, "rotation") as number | Quaternion,
@@ -307,19 +327,25 @@ function readAsset(value: unknown, path: string): Asset {
 
 ////////////////////
 // 型付きキー列を読み込み、時刻の昇順と一意性を検証する
-function readTrack(value: unknown, path: string, mode: Mode): Track {
-    const track = record(value, path, ["layerId", "property", "interpolation", "keys"]); // Track候補
-    const property = choice(track.property, `${path}.property`, PROPERTIES); // 値型を決めるプロパティ
+function readTrack(value: unknown, path: string, mode: Mode, legacy: boolean): Track {
+    const track = record(value, path, ["layerId", "property", "interpolation", "keys", "beforeFirst"]); // Track候補
+    const property = choice(track.property, `${path}.property`, legacy ? PROPERTIES : TRACK_PROPERTIES); // 値型を決めるプロパティ
+    if (Object.hasOwn(track, "beforeFirst") && !PROPERTIES.some((entry) => entry === property)) {
+        fail(path + ".beforeFirst", "旧版互換の先頭動作はレイヤーの基本トラック専用です。");
+    }
     let previous = -1; // 直前の相対時刻（µs）
     const keys = list(track.keys, `${path}.keys`, (item, itemPath) => {
-        const key = record(item, itemPath, ["offsetUs", "value"]); // キー候補
+        const key = record(item, itemPath, ["offsetUs", "value", "interpolation"]); // キー候補
         const offsetUs = integer(key.offsetUs, `${itemPath}.offsetUs`); // レイヤー開始からの時刻
         if (offsetUs <= previous) fail(`${itemPath}.offsetUs`, "キー時刻は重複なしの昇順にしてください。");
         previous = offsetUs;
-        return { offsetUs, value: trackValue(key.value, `${itemPath}.value`, mode, property) };
+        return { offsetUs, value: trackValue(key.value, `${itemPath}.value`, mode, property),
+            ...(Object.hasOwn(key, "interpolation") ? { interpolation: choice(key.interpolation, itemPath + ".interpolation", ["step", "linear"]) } : {}) };
     }); // 同じプロパティ型で検証済みのキー列
     return {
         layerId: id(track.layerId, `${path}.layerId`), property,
+        ...(legacy ? { beforeFirst: "base" } : Object.hasOwn(track, "beforeFirst")
+            ? { beforeFirst: choice(track.beforeFirst, path + ".beforeFirst", ["base"]) } : {}),
         interpolation: choice(track.interpolation, `${path}.interpolation`, ["step", "linear"]), keys,
     } as Track;
 }
@@ -381,12 +407,16 @@ function validateReferences(project: Project, path: string): void {
         const location = `${path}.tracks[${index}]`; // 現在のTrackの位置
         reference(track.layerId, "layer", `${location}.layerId`);
         const layer = layers.get(track.layerId.toLowerCase())!; // 参照済みのレイヤー
+        if (!PROPERTIES.some((property) => property === track.property) && layer.content.kind !== "emitter") {
+            fail(location + ".property", "発生器を持つレイヤーにだけ指定できます。");
+        }
         const key = `${layer.id.toLowerCase()}:${track.property}`; // Trackの複合識別子
         if (tracks.has(key)) fail(location, "同じレイヤーとプロパティのTrackが重複しています。");
         tracks.add(key);
         const maxOffsetUs = project.durationUs - layer.startUs; // 加算であふれないよう差で求める許容範囲
         track.keys.forEach((item, keyIndex) => {
-            if (item.offsetUs > maxOffsetUs) fail(`${location}.keys[${keyIndex}].offsetUs`, "キーが制作尺の範囲外です。");
+            if (item.offsetUs > Number.MAX_SAFE_INTEGER - layer.startUs
+                || (!project.allowOutsideKeys && item.offsetUs > maxOffsetUs)) fail(`${location}.keys[${keyIndex}].offsetUs`, "キーが制作尺の範囲外です。");
         });
     });
 }
@@ -395,15 +425,22 @@ function validateReferences(project: Project, path: string): void {
 // 外部入力を検証し、独立した編集文書を返す
 export function validateProject(value: unknown, path = "project"): Project {
     const input = record(value, path, [...PROJECT_FIELDS, "drawing", "canvasWidth", "canvasHeight", "pixelScale", "preview"]); // 文書候補
-    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
+    const version = integer(input.schemaVersion, path + ".schemaVersion", 1);
+    if (version > DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
     const mode = choice(input.mode, `${path}.mode`, ["2d", "3d"]); // 文書の編集モード
     if (!isProductionFps(input.productionFps)) fail(`${path}.productionFps`, "制作FPSが不正です。");
     const durationUs = integer(input.durationUs, `${path}.durationUs`, 1); // 制作尺（µs）
+    const allowOutsideKeys = Object.hasOwn(input, "allowOutsideKeys"); // 短縮で保持した時間情報の許可
+    if (allowOutsideKeys && (version < DOCUMENT_SCHEMA_VERSION || input.allowOutsideKeys !== true)) {
+        fail(path + ".allowOutsideKeys", "制作尺外の保持指定が不正です。");
+    }
     const common = {
         ...(Object.hasOwn(input, "preview") ? { preview: readProjectPreview(input.preview, path + ".preview") } : {}),
+        ...(allowOutsideKeys ? { allowOutsideKeys: true as const } : {}),
         schemaVersion: DOCUMENT_SCHEMA_VERSION, mode, durationUs, productionFps: input.productionFps,
         id: id(input.id, `${path}.id`), name: name(input.name, `${path}.name`),
-        layers: list(input.layers, `${path}.layers`, (item, location) => readLayer(item, location, mode, durationUs)),
+        layers: list(input.layers, `${path}.layers`, (item, location) => readLayer(item, location, mode,
+            allowOutsideKeys ? Number.MAX_SAFE_INTEGER : durationUs)),
         emitters: list(input.emitters, `${path}.emitters`, (item, location) => {
             const emitter = readEmitter(item, location); // 検証した発生器
             if (mode === "3d" && emitter.particle2d) fail(location, "3D文書に2D設定は指定できません。");
@@ -412,7 +449,7 @@ export function validateProject(value: unknown, path = "project"): Project {
                 : { ...emitter, particle3d: emitter.particle3d ?? DEFAULT_PARTICLE_3D };
         }),
         materials: list(input.materials, `${path}.materials`, readMaterial),
-        tracks: list(input.tracks, `${path}.tracks`, (item, location) => readTrack(item, location, mode)),
+        tracks: list(input.tracks, `${path}.tracks`, (item, location) => readTrack(item, location, mode, version < DOCUMENT_SCHEMA_VERSION)),
         assets: list(input.assets, `${path}.assets`, readAsset),
     } as const; // 指定モードで読み込んだ共通項目
     if (mode === "3d" && ["drawing", "canvasWidth", "canvasHeight", "pixelScale"].some((field) => Object.hasOwn(input, field))) {
@@ -434,7 +471,7 @@ export function validateProject(value: unknown, path = "project"): Project {
 // 独立したテンプレート文書を読み、必要素材の宣言が内部で解決できることを確認する
 export function validatePreset(value: unknown): Preset {
     const input = record(value, "preset", ["schemaVersion", "id", "name", "template", "requiredAssetIds"]); // プリセット候補
-    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
+    if (integer(input.schemaVersion, "preset.schemaVersion", 1) > DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
     const template = validateProject(input.template, "preset.template"); // 独立した参照スコープ
     const assets = new Set(template.assets.map((asset) => asset.id.toLowerCase())); // テンプレートの素材ID
     const declared = new Set<string>(); // すでに宣言した必要素材

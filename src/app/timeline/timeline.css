@@ -1,0 +1,89 @@
+.timeline-review {
+    max-width: 1180px;
+    margin: auto;
+    padding: 1rem;
+    color: #eee9f7;
+    background: #1a1726;
+}
+
+.timeline-review canvas {
+    display: block;
+    width: min(100%, 640px);
+    height: auto;
+    border: 1px solid #594a72;
+}
+
+.timeline-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+    margin-block: 0.6rem;
+    border: 1px solid #594a72;
+}
+
+.timeline-toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.timeline-toolbar input[type="number"] { width: 7rem; }
+.timeline-review a, .timeline-toolbar legend { color: #d6bdff; }
+
+.timeline-scroll {
+    overflow-x: auto;
+    padding-inline: 0.55rem;
+    border: 1px solid #594a72;
+}
+
+.timeline-grid { position: relative; min-width: 36rem; }
+
+.timeline-ruler,
+.timeline-lane {
+    position: relative;
+    min-height: 2.1rem;
+    border-bottom: 1px solid #564768;
+    background: repeating-linear-gradient(to right, #493b5d 0 1px, transparent 1px 12.5%);
+}
+
+.timeline-ruler { cursor: crosshair; }
+.timeline-ruler span { position: absolute; pointer-events: none; white-space: nowrap; font-size: 0.8rem; }
+.timeline-ruler span:last-child { transform: translateX(-100%); }
+.timeline-lane > span:first-child {
+    position: sticky;
+    left: 0;
+    top: 0;
+    font-size: 0.8rem;
+    pointer-events: none;
+    color: #e4d8f5;
+}
+.timeline-lane.key-lane { background-color: #211b30; }
+.timeline-marker-slot { display: contents; }
+
+.timeline-marker {
+    position: absolute;
+    bottom: 0.15rem;
+    width: 1rem;
+    height: 1rem;
+    border: 1px solid #e6d0ff;
+    border-radius: 0.15rem;
+    transform: translateX(-50%);
+    background: #8d62cd;
+    cursor: ew-resize;
+    touch-action: none;
+    padding: 0;
+}
+
+.timeline-marker.key { transform: translateX(-50%) rotate(45deg) scale(0.75); }
+.timeline-marker.end { background: #a17149; }
+.timeline-marker.outside { background: #a75568; }
+.timeline-marker.selected { outline: 2px solid #fff; }
+.timeline-playhead {
+    position: absolute;
+    inset-block: 0;
+    border-left: 2px solid #d3a0ff;
+    pointer-events: none;
+}
+.timeline-review dialog { background: #231c33; color: #fff; border: 1px solid #9875bf; }
+.timeline-review dialog button { margin-inline-end: 0.5rem; }

@@ -35,7 +35,7 @@ export class ParticleSurface {
         const uniforms = { spatial: { value: this._gradient }, imageMap: { value: this._image },
             imageSize: { value: new Vector2(bitmap?.width ?? 1, bitmap?.height ?? 1) },
             textured: { value: Boolean(bitmap) }, roundParticle: { value: !bitmap && (mode === "2d" || Boolean(material.appearance)) },
-            bloomStrength: { value: appearance.bloomStrength }, threshold: { value: 0.5 } }; // 二つのパスで共通の入力
+            threshold: { value: 0.5 } }; // 二つのパスで共通の入力
         const source = {
             transparent: true, depthWrite: false, depthTest: false, forceSinglePass: true,
             vertexShader: VERTEX_SHADER, fragmentShader: FRAGMENT_SHADER, uniforms,
@@ -62,11 +62,14 @@ export class ParticleSurface {
 
 const VERTEX_SHADER = `
 attribute vec4 tint;
+attribute float particleBloom;
 varying vec4 vTint;
 varying vec2 vUv;
+varying float bloomStrength;
 void main() {
     vTint = tint;
     vUv = uv;
+    bloomStrength = particleBloom;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`; // T06と同じ板の頂点に材質用UVを追加
 
@@ -78,7 +81,7 @@ uniform sampler2D imageMap;
 uniform vec2 imageSize;
 uniform bool textured;
 uniform bool roundParticle;
-uniform float bloomStrength;
+varying float bloomStrength;
 uniform float threshold;
 // 透明画素のRGBが輪郭へ漏れないよう、線形色をアルファで重み付けして補間する。
 vec4 readImagePixel(vec2 p) {
