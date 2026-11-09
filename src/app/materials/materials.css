@@ -1,0 +1,55 @@
+.materials-review {
+    margin: auto;
+    max-width: 1180px;
+    padding: 1rem;
+    color: #eee9f7;
+    background: #1a1726;
+}
+
+.materials-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(18rem, 2fr);
+    gap: 1rem;
+}
+
+.materials-layout canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: 0.5rem;
+}
+
+.materials-layout canvas[data-pixel="true"] { image-rendering: pixelated; }
+
+.materials-layout fieldset {
+    min-width: 0;
+    margin: 0.5rem 0;
+    border: 1px solid #675384;
+}
+
+.materials-layout legend,
+.materials-review a {
+    color: #d6bdff;
+}
+
+.materials-review label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem;
+}
+
+.materials-review input[type="number"] {
+    width: 6rem;
+}
+
+.material-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+@media (max-width: 760px) {
+    .materials-layout { grid-template-columns: minmax(0, 1fr); }
+}

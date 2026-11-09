@@ -1,4 +1,4 @@
-import type { Emitter, Asset, Layer, LayerValues, Mode, Project, Track, TrackValue } from "../document/model.ts";
+import type { Material, ProjectPreview, Emitter, Asset, Layer, LayerValues, Mode, Project, Track, TrackValue } from "../document/model.ts";
 import { DocumentValidationError, validateProject } from "../document/validateDocument.ts";
 import { shareValidatedProject } from "./snapshot.ts";
 
@@ -8,6 +8,9 @@ type TrackTarget = Pick<Track, "layerId" | "property">;
 type Keyframe = { readonly offsetUs: number; readonly value: TrackValue };
 
 export type EditCommand =
+    | { readonly kind: "material.appearance"; readonly materialId: string; readonly appearance: NonNullable<Material["appearance"]>;
+        readonly color: Material["color"]; readonly blend: Material["blend"]; readonly textureAssetId?: Material["textureAssetId"] }
+    | { readonly kind: "project.preview"; readonly preview: ProjectPreview }
     | { readonly kind: "emitter.update"; readonly emitterId: string; readonly settings: Pick<Emitter, "emission" | "lifetimeUs" | "particle2d" | "particle3d"> }
     | { readonly kind: "drawing.update"; readonly drawing: "normal" | "pixel"; readonly pixelScale: number }
     | { readonly kind: "layer.add"; readonly layer: Layer }
@@ -72,6 +75,14 @@ function editKeys(project: Project, command: KeyCommand): unknown {
 // 元の文書を変更せずに編集候補を組み立てる
 function createCandidate(project: Project, command: EditCommand): unknown {
     switch (command.kind) {
+        case "project.preview":
+            return { ...project, preview: command.preview };
+        case "material.appearance": {
+            const material = findEntity(project.materials, command.materialId, "command.materialId"); // 更新対象
+            return { ...project, materials: project.materials.map((entry) => entry === material
+                ? { ...entry, color: command.color, blend: command.blend, appearance: command.appearance,
+                    textureAssetId: command.textureAssetId === undefined ? entry.textureAssetId : command.textureAssetId } : entry) };
+        }
         case "emitter.update": {
             const emitter = findEntity(project.emitters, command.emitterId, "command.emitterId"); // 設定変更対象
             if (Object.keys(command.settings).some((key) => !["emission", "lifetimeUs", "particle2d", "particle3d"].includes(key))) {

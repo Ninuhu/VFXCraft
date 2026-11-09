@@ -12,6 +12,8 @@ export type ParticleSample3D = {
     readonly color: Vec3;
     readonly opacity: number;
     readonly billboard: Particle3D["billboard"];
+    readonly materialId: string; // 描画時に使う材質の参照
+    readonly age: number; // 正規化した粒子寿命
 };
 export type Transform3D = (point: Vec3) => Vec3;
 
@@ -94,7 +96,7 @@ export function evaluateParticles3D(project: Project3D, timeUs: number): Particl
             output.push({ key: layer.id.toLowerCase() + ":" + index, position: transform(local), width, height,
                 color: [material.color[0] * layer.values.color[0], material.color[1] * layer.values.color[1],
                     material.color[2] * layer.values.color[2]], opacity: layer.values.opacity,
-                billboard: settings.billboard });
+                billboard: settings.billboard, materialId: material.id, age: age / emitter.lifetimeUs });
         }
     }
     return output;

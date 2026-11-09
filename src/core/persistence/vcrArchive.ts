@@ -169,7 +169,7 @@ export async function readVcr(file: Blob, limits: VcrLimits, verify: VerifyImage
         const document = entries.get(JSON_PROJECT); // 論理文書
         if (!metadata || !document) throw new Error("必須JSONが見つかりません。");
         checkMetadata(await readJson(await extract(metadata, limits.jsonBytes)));
-        const project = validateProject(await readJson(await extract(document, limits.jsonBytes))); // v1のみ。旧版追加時はここで移行
+        const project = validateProject(await readJson(await extract(document, limits.jsonBytes))); // 論理スキーマの検証・旧版移行
         const images = new Map<string, Blob>(); // 全検証が完了するまで外部に公開しない素材
         if (entries.size !== project.assets.length + 2) throw new Error("登録素材とZIPエントリ数が一致しません。");
         for (const asset of project.assets) {

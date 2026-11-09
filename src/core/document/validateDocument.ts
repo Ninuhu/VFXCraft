@@ -1,3 +1,4 @@
+import type { Gradient, GradientStop, MaterialAppearance, ProjectPreview, BackgroundSettings } from "./model.ts";
 import {
     DOCUMENT_SCHEMA_VERSION, type Asset, type Particle2D, type Particle3D, type Emitter, type Layer, type LinearRgb,
     type Material, type Mode, type Preset, type Project, type Quaternion, type Track,
@@ -223,14 +224,68 @@ function readEmitter(value: unknown, path: string): Emitter {
 }
 
 ////////////////////
+// 制御点を昇順に整列し、同じ位置は曖昧なので拒否する
+function readStops<T>(input: unknown, path: string, read: (value: unknown, path: string) => T): GradientStop<T>[] {
+    if (!Array.isArray(input) || input.length > 64) fail(path, "制御点は64点以下にしてください。");
+    const stops = list(input, path, (item, itemPath) => {
+        const stop = record(item, itemPath, ["offset", "value"]); // 制御点
+        return { offset: number(stop.offset, itemPath + ".offset", 0, 1), value: read(stop.value, itemPath + ".value") };
+    }).sort((a, b) => a.offset - b.offset); // 評価順
+    if (stops.some((stop, index) => index > 0 && stops[index - 1]!.offset === stop.offset)) fail(path, "同じ位置に制御点を置けません。");
+    return stops;
+}
+
+////////////////////
+// RGBとアルファを独立に読み込む
+function readGradient(input: unknown, path: string): Gradient {
+    const gradient = record(input, path, ["colors", "alphas"]); // 独立した二つのトラック
+    return { colors: readStops(gradient.colors, path + ".colors", color),
+        alphas: readStops(gradient.alphas, path + ".alphas", (value, name) => number(value, name, 0, 1)) };
+}
+
+////////////////////
+// T07の有効化済みマテリアルを読み込む
+function readAppearance(input: unknown, path: string): MaterialAppearance {
+    const appearance = record(input, path, ["opacity", "lifetime", "spatial", "bloomStrength"]); // 外部入力
+    return { opacity: number(appearance.opacity, path + ".opacity", 0, 1),
+        lifetime: readGradient(appearance.lifetime, path + ".lifetime"),
+        spatial: readGradient(appearance.spatial, path + ".spatial"),
+        bloomStrength: number(appearance.bloomStrength, path + ".bloomStrength", 0, 8) };
+}
+
+////////////////////
+// 未指定とfalse・0を区別して背景の項目別上書きを読む
+export function validateBackground(input: unknown, path = "background"): Partial<BackgroundSettings> {
+    const background = record(input, path, ["color", "checker", "grid", "gridOpacity"]); // 上書き値
+    return {
+        ...(Object.hasOwn(background, "color") ? { color: color(background.color, path + ".color") } : {}),
+        ...(Object.hasOwn(background, "checker") ? { checker: flag(background.checker, path + ".checker") } : {}),
+        ...(Object.hasOwn(background, "grid") ? { grid: flag(background.grid, path + ".grid") } : {}),
+        ...(Object.hasOwn(background, "gridOpacity") ? { gridOpacity: number(background.gridOpacity, path + ".gridOpacity", 0, 1) } : {}),
+    };
+}
+
+////////////////////
+// 描画品質と分離したプロジェクト共通Bloomを読む
+function readProjectPreview(input: unknown, path: string): ProjectPreview {
+    const preview = record(input, path, ["background", "bloom", "pixelBloom"]); // 保存値
+    const bloom = record(preview.bloom, path + ".bloom", ["radius", "threshold"]); // 共通値
+    return { background: validateBackground(preview.background, path + ".background"),
+        bloom: { radius: number(bloom.radius, path + ".bloom.radius", 0, 32),
+            threshold: number(bloom.threshold, path + ".bloom.threshold", 0, 1) },
+        pixelBloom: choice(preview.pixelBloom, path + ".pixelBloom", ["pixel", "smooth"]) };
+}
+
+////////////////////
 // 素材参照と基本的な描画設定を読み込む
 function readMaterial(value: unknown, path: string): Material {
-    const material = record(value, path, ["id", "textureAssetId", "blend", "color", "hasBloom", "gradient"]); // 材質候補
+    const material = record(value, path, ["id", "textureAssetId", "blend", "color", "hasBloom", "gradient", "appearance"]); // 材質候補
     return {
         id: id(material.id, `${path}.id`),
         textureAssetId: material.textureAssetId === null ? null : id(material.textureAssetId, `${path}.textureAssetId`),
-        blend: choice(material.blend, `${path}.blend`, ["alpha", "additive"]),
+        blend: choice(material.blend, `${path}.blend`, ["alpha", "additive", "multiply"]),
         color: color(material.color, `${path}.color`),
+        ...(Object.hasOwn(material, "appearance") ? { appearance: readAppearance(material.appearance, path + ".appearance") } : {}),
         hasBloom: flag(material.hasBloom, `${path}.hasBloom`),
         gradient: list(material.gradient, `${path}.gradient`, (item, itemPath) => {
             const stop = record(item, itemPath, ["offset", "color"]); // グラデーションの色点
@@ -339,12 +394,13 @@ function validateReferences(project: Project, path: string): void {
 ////////////////////
 // 外部入力を検証し、独立した編集文書を返す
 export function validateProject(value: unknown, path = "project"): Project {
-    const input = record(value, path, [...PROJECT_FIELDS, "drawing", "canvasWidth", "canvasHeight", "pixelScale"]); // 文書候補
-    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
+    const input = record(value, path, [...PROJECT_FIELDS, "drawing", "canvasWidth", "canvasHeight", "pixelScale", "preview"]); // 文書候補
+    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "未対応のスキーマ版です。");
     const mode = choice(input.mode, `${path}.mode`, ["2d", "3d"]); // 文書の編集モード
     if (!isProductionFps(input.productionFps)) fail(`${path}.productionFps`, "制作FPSが不正です。");
     const durationUs = integer(input.durationUs, `${path}.durationUs`, 1); // 制作尺（µs）
     const common = {
+        ...(Object.hasOwn(input, "preview") ? { preview: readProjectPreview(input.preview, path + ".preview") } : {}),
         schemaVersion: DOCUMENT_SCHEMA_VERSION, mode, durationUs, productionFps: input.productionFps,
         id: id(input.id, `${path}.id`), name: name(input.name, `${path}.name`),
         layers: list(input.layers, `${path}.layers`, (item, location) => readLayer(item, location, mode, durationUs)),
@@ -378,7 +434,7 @@ export function validateProject(value: unknown, path = "project"): Project {
 // 独立したテンプレート文書を読み、必要素材の宣言が内部で解決できることを確認する
 export function validatePreset(value: unknown): Preset {
     const input = record(value, "preset", ["schemaVersion", "id", "name", "template", "requiredAssetIds"]); // プリセット候補
-    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
+    if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3 && input.schemaVersion !== DOCUMENT_SCHEMA_VERSION) fail("preset.schemaVersion", "未対応のスキーマ版です。");
     const template = validateProject(input.template, "preset.template"); // 独立した参照スコープ
     const assets = new Set(template.assets.map((asset) => asset.id.toLowerCase())); // テンプレートの素材ID
     const declared = new Set<string>(); // すでに宣言した必要素材

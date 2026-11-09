@@ -148,7 +148,7 @@ const invalidCases = [
     ["制作尺外のキー", (project) => { project.tracks[0].keys[1].offsetUs = 900_001; }, "project.tracks[0].keys[1].offsetUs"],
     ["同時刻キー", (project) => { project.tracks[0].keys[1].offsetUs = 100_000; }, "project.tracks[0].keys[1].offsetUs"],
     ["重複Track", (project) => { project.tracks.push(project.tracks[0]); }, "project.tracks[5]"],
-    ["未対応スキーマ版", (project) => { project.schemaVersion = 4; }, "project.schemaVersion"],
+    ["未対応スキーマ版", (project) => { project.schemaVersion = 5; }, "project.schemaVersion"],
 ]; // 誤入力と拒否箇所の組
 
 for (const [label, mutate, path] of invalidCases) {
