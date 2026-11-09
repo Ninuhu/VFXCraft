@@ -1,4 +1,4 @@
-export const DOCUMENT_SCHEMA_VERSION = 4; // 論理データの形式版
+export const DOCUMENT_SCHEMA_VERSION = 5; // 論理データの形式版
 export const DEFAULT_PRODUCTION_FPS = 60; // 新規プロジェクトの初期制作FPS
 
 export type Mode = "2d" | "3d";
@@ -17,14 +17,24 @@ export type LayerValues<M extends Mode> = {
     opacity: number;
 };
 
-export type TrackProperty = keyof LayerValues<Mode>;
-export type TrackValue = LayerValues<Mode>[TrackProperty];
+export type LayerProperty = keyof LayerValues<Mode>;
+export const EMITTER_TRACK_PROPERTIES = ["rate", "lifetimeUs", "speed", "direction", "acceleration", "particleSize",
+    "materialColor", "materialOpacity", "bloomStrength"] as const; // 発生レイヤー固有の対象
+type AnimationValues<M extends Mode> = LayerValues<M> & {
+    rate: number; lifetimeUs: number; speed: number; direction: M extends "2d" ? number : Vec3;
+    acceleration: Vector<M>; particleSize: number; materialColor: LinearRgb; materialOpacity: number; bloomStrength: number;
+};
+export type TrackProperty = keyof AnimationValues<Mode>;
+export type TrackValue = AnimationValues<Mode>[TrackProperty];
+export type Interpolation = "step" | "linear";
+export type Keyframe<T = TrackValue> = { readonly offsetUs: number; readonly value: T; readonly interpolation?: Interpolation };
 export type Track<M extends Mode = Mode> = {
     [P in TrackProperty]: {
         readonly layerId: string;
         readonly property: P;
-        readonly interpolation: "step" | "linear";
-        readonly keys: readonly { readonly offsetUs: number; readonly value: LayerValues<M>[P] }[];
+        readonly interpolation: Interpolation; // 区間指定がない場合の既定値
+        readonly beforeFirst?: "base"; // 旧版の先頭キー前を保つ
+        readonly keys: readonly Keyframe<AnimationValues<M>[P]>[];
     };
 }[TrackProperty];
 
@@ -36,6 +46,7 @@ export type Layer<M extends Mode = Mode> = {
     readonly isVisible: boolean;
     readonly isLocked: boolean;
     readonly startUs: number;
+    readonly emissionEndUs?: number; // 省略時は従来どおり明示的な発生終端なし
     readonly values: Readonly<LayerValues<M>>;
     readonly content: { readonly kind: "group" } | { readonly kind: "emitter"; readonly emitterId: string };
 };
@@ -118,6 +129,7 @@ type ProjectOf<M extends Mode> = {
     readonly id: string;
     readonly name: string;
     readonly durationUs: number;
+    readonly allowOutsideKeys?: true; // 短縮時に保持を選択した制作尺外の編集情報
     readonly productionFps: number;
     readonly layers: readonly Layer<M>[];
     readonly emitters: readonly Emitter[];

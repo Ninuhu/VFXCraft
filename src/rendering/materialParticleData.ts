@@ -1,5 +1,6 @@
 import type { Material, Project } from "../core/document/model.ts";
 import { evaluateGradient, multiplyRgba } from "../core/materials/materialEvaluation.ts";
+import { layerValuesAt, materialValuesAt, tracksFor } from "../core/document/animation.ts";
 import { evaluateParticles2D } from "../core/particles/evaluate2D.ts";
 import { evaluateParticles3D, type ParticleSample3D } from "../core/particles/evaluate3D.ts";
 import type { CameraBasis } from "./particleDrawData3D.ts";
@@ -19,14 +20,21 @@ export function collectMaterialParticles(project: Project, timeUs: number): Part
         const emitter = emitters.get(layer.content.emitterId.toLowerCase())!; // 検証済み参照
         const material = materials.get(emitter.materialId.toLowerCase())!; // 検証済み参照
         const size = material.textureAssetId ? 8 : 6; // T05の論理ピクセル径
-        const [scaleX, scaleY] = material.appearance ? layer.values.size : [1, 1]; // 新しい材質ではレイヤーの寸法を反映
-        const color = material.appearance ? material.color.map((value, axis) => value * layer.values.color[axis]!) : [1, 1, 1]; // 旧2Dは白で描画
+        const values = layerValuesAt(project, layer, timeUs); // 現在時刻のレイヤー値
+        const appearance = materialValuesAt(project, layer, material, timeUs); // 現在時刻の材質値
+        const tracks = tracksFor(project, layer.id); // 旧2Dの静的な見た目を判断する
+        const [scaleX, scaleY] = material.appearance || tracks?.has("size") ? values.size : [1, 1];
+        const color = material.appearance || tracks?.has("color") || tracks?.has("materialColor")
+            ? appearance.color.map((value, axis) => value * values.color[axis]!) : [1, 1, 1]; // 旧2Dの既定は白
         const samples = evaluateParticles2D(project, layer.id, timeUs); // 既存の決定的な評価結果
         if (output.length + samples.length > MAX_PREVIEW_PARTICLES) throw new RangeError("全体の粒子数が安全上限を超えています。");
         for (const sample of samples) {
             output.push({ key: layer.id + ":" + sample.id, position: [...sample.position, 0],
-                width: size * scaleX, height: size * scaleY, billboard: "camera", color: [color[0]!, color[1]!, color[2]!],
-                opacity: layer.values.opacity, materialId: material.id, age: sample.age });
+                width: size * scaleX * (sample.size ?? 1), height: size * scaleY * (sample.size ?? 1),
+                billboard: "camera", color: [color[0]!, color[1]!, color[2]!],
+                opacity: values.opacity, materialId: material.id, age: sample.age,
+                ...(appearance.opacity === undefined ? {} : { materialOpacity: appearance.opacity }),
+                ...(appearance.bloom === undefined ? {} : { bloomStrength: appearance.bloom }) });
         }
     }
     return output;
@@ -37,9 +45,10 @@ export function collectMaterialParticles(project: Project, timeUs: number): Part
 export function tintMaterialParticles(samples: readonly ParticleSample3D[], materials: ReadonlyMap<string, Material>): ParticleSample3D[] {
     return samples.map((sample) => {
         const appearance = materials.get(sample.materialId.toLowerCase())!.appearance; // 発生器が使用する材質
-        if (!appearance) return sample;
-        const rgba = multiplyRgba([...sample.color, sample.opacity * appearance.opacity],
-            evaluateGradient(appearance.lifetime, sample.age)); // 空間方向とテクスチャはピクセル単位で合成する
-        return { ...sample, color: [rgba[0], rgba[1], rgba[2]], opacity: rgba[3] };
+        const strength = sample.bloomStrength ?? appearance?.bloomStrength ?? 0; // 現在のレイヤー固有の発光
+        const opacity = sample.opacity * (sample.materialOpacity ?? appearance?.opacity ?? 1);
+        const rgba = appearance ? multiplyRgba([...sample.color, opacity], evaluateGradient(appearance.lifetime, sample.age))
+            : [...sample.color, opacity] as const;
+        return { ...sample, color: [rgba[0], rgba[1], rgba[2]], opacity: rgba[3], bloomStrength: strength };
     });
 }

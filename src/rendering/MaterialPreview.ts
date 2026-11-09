@@ -81,6 +81,7 @@ export class MaterialPreview {
         this._geometry.setAttribute("position", new BufferAttribute(this._positions, 3).setUsage(DynamicDrawUsage));
         this._geometry.setAttribute("tint", new BufferAttribute(this._colors, 4).setUsage(DynamicDrawUsage));
         this._geometry.setAttribute("uv", new BufferAttribute(uvs, 2));
+        this._geometry.setAttribute("particleBloom", new BufferAttribute(new Float32Array(this._capacity * VERTICES_PER_PARTICLE), 1).setUsage(DynamicDrawUsage));
     }
 
     ////////////////////
@@ -96,7 +97,7 @@ export class MaterialPreview {
             first = last;
         }
         this._geometry.setDrawRange(0, samples.length * VERTICES_PER_PARTICLE);
-        for (const [name, stride] of [["position", 18], ["tint", 24]] as const) {
+        for (const [name, stride] of [["position", 18], ["tint", 24], ["particleBloom", VERTICES_PER_PARTICLE]] as const) {
             const attribute = this._geometry.getAttribute(name) as BufferAttribute; // 有効な頂点だけを転送する
             attribute.clearUpdateRanges();
             if (samples.length > 0) { attribute.addUpdateRange(0, samples.length * stride); attribute.needsUpdate = true; }
@@ -137,6 +138,13 @@ export class MaterialPreview {
         const ordered = tintMaterialParticles(sorted, materials);
         this.reserve(Math.max(1, ordered.length));
         fillParticleVertices(ordered, basis, this._positions, this._colors);
+        const bloom = this._geometry.getAttribute("particleBloom").array as Float32Array; // 頂点に付随する発光値
+        const emitting = new Set<string>(); // 発光パスで使用する材質
+        ordered.forEach((sample, index) => {
+            const strength = sample.bloomStrength ?? 0; // 同じ材質でもレイヤーで異なる
+            bloom.fill(strength, index * VERTICES_PER_PARTICLE, (index + 1) * VERTICES_PER_PARTICLE);
+            if (strength > 0) emitting.add(sample.materialId.toLowerCase());
+        });
         this.buildGroups(ordered, indices);
         const background = options.background ? resolveBackground(options.background, preview.background) : undefined;
         this._scene.background = background ? this._backgroundTexture : null;
@@ -156,10 +164,10 @@ export class MaterialPreview {
         this._output.imageSmoothingEnabled = false;
         this._output.drawImage(surface, 0, 0, bodyWidth * scale, bodyHeight * scale);
         const drawn = performance.now(); // WebGLの描画指示と本体Canvasへのコピー完了
-        if (ordered.length > 0 && preview.bloom.threshold < 1 && entries.some((entry) => (entry.material.appearance?.bloomStrength ?? 0) > 0)) {
+        if (emitting.size > 0 && preview.bloom.threshold < 1) {
             for (const entry of entries) {
                 entry.surface.emission.uniforms.threshold!.value = preview.bloom.threshold;
-                entry.surface.emission.visible = (entry.material.appearance?.bloomStrength ?? 0) > 0;
+                entry.surface.emission.visible = emitting.has(entry.material.id.toLowerCase());
             }
             this._scene.background = null;
             this._mesh.material = entries.map((entry) => entry.surface.emission);
@@ -171,7 +179,7 @@ export class MaterialPreview {
         }
         return { count: ordered.length, calls, simulationMs: evaluated - start, sortMs: sortedAt - evaluated, prepareMs: prepared - sortedAt,
             bodyMs: drawn - prepared, bloomMs: performance.now() - drawn, textures: this._gl.info.memory.textures,
-            bufferBytes: this._positions.byteLength + this._colors.byteLength + this._capacity * UV.length * 4 };
+            bufferBytes: this._positions.byteLength + this._colors.byteLength + this._capacity * (UV.length + VERTICES_PER_PARTICLE) * 4 };
     }
 
     ////////////////////

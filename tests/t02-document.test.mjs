@@ -103,7 +103,7 @@ test("絶対フレーム時刻を正確に丸め、FPS変更では時刻を保�
 });
 
 test("レイヤー開始とキーの境界を扱い、基本値を補間する", () => {
-    const project = validateProject(fixture()); // 有効な2D文書
+    const project = validateProject({ ...fixture(), schemaVersion: 4 }); // 旧Trackは先頭キー前の基準値を維持する
     const layer = project.layers[1]; // 100msから始まるレイヤー
     const [position, rotation, size, color, opacity] = project.tracks; // 5項目のTrack
     assert.equal(evaluateLayerTrack(layer, position, 99_999), undefined);
@@ -148,7 +148,7 @@ const invalidCases = [
     ["制作尺外のキー", (project) => { project.tracks[0].keys[1].offsetUs = 900_001; }, "project.tracks[0].keys[1].offsetUs"],
     ["同時刻キー", (project) => { project.tracks[0].keys[1].offsetUs = 100_000; }, "project.tracks[0].keys[1].offsetUs"],
     ["重複Track", (project) => { project.tracks.push(project.tracks[0]); }, "project.tracks[5]"],
-    ["未対応スキーマ版", (project) => { project.schemaVersion = 5; }, "project.schemaVersion"],
+    ["未対応スキーマ版", (project) => { project.schemaVersion = 6; }, "project.schemaVersion"],
 ]; // 誤入力と拒否箇所の組
 
 for (const [label, mutate, path] of invalidCases) {

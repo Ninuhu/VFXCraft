@@ -1,11 +1,12 @@
-import type { LayerValues, Project, Vec2 } from "../document/model.ts";
-import { emissionWindow } from "./emission.ts";
-import { evaluateLayerTrack } from "../document/evaluateTrack.ts";
+import type { Project, Vec2 } from "../document/model.ts";
+import { activeBirths } from "./animatedEmission.ts";
+import { layerValuesAt, tracksFor } from "../document/animation.ts";
+import { evaluateTrack } from "../document/evaluateTrack.ts";
 import { isNonNegativeSafeInteger, MICROS_PER_SECOND } from "../document/time.ts";
 
 export type Project2D = Extract<Project, { mode: "2d" }>;
 export type Matrix2D = readonly [number, number, number, number, number, number];
-export type ParticleSample = { readonly id: number; readonly position: Vec2; readonly age: number };
+export type ParticleSample = { readonly id: number; readonly position: Vec2; readonly age: number; readonly size?: number };
 export type TransformAt = (timeUs: number) => Matrix2D;
 const IDENTITY: Matrix2D = [1, 0, 0, 1, 0, 0]; // 親のない座標の単位行列
 
@@ -38,11 +39,7 @@ export function layerTransform(project: Project2D, layerId: string, timeUs: numb
     }
     let result = IDENTITY; // ワールド変換
     for (const item of chain.reverse()) {
-        const values: LayerValues<"2d"> = { ...item.values }; // 基準値から開始する変換
-        for (const track of project.tracks.filter((entry) => entry.layerId.toLowerCase() === item.id.toLowerCase())) {
-            const value = evaluateLayerTrack(item, track, timeUs); // 指定時刻のアニメーション
-            if (value !== undefined) Object.assign(values, { [track.property]: value });
-        }
+        const values = layerValuesAt(project, item, timeUs); // 指定時刻の変換
         const angle = values.rotation * Math.PI / 180; // 時計回りの度数をラジアンへ変換
         const cosine = Math.cos(angle), sine = Math.sin(angle); // 正のYが下を向く画面の基底
         result = multiply(result, [cosine*values.size[0], sine*values.size[0], -sine*values.size[1],
@@ -73,15 +70,15 @@ export function evaluateParticles2D(project: Project2D, layerId: string, timeUs:
     const elapsed = timeUs - layer.startUs; // レイヤー開始からの時刻
     if (elapsed < 0) return [];
     const settings = emitter.particle2d; // 2D運動と発生空間
-    const { first, last, rate } = emissionWindow(emitter, elapsed); // 2D・3D共通の発生境界
+    const tracks = tracksFor(project, layer.id); // 発生時に使うトラック
     const current = settings.space === "local" ? transformAt(timeUs) : IDENTITY; // ローカル粒子だけ現在の変換に追従
-    const radians = settings.directionDegrees * Math.PI / 180; // X正方向が0度、時計回り
-    const velocity: Vec2 = [Math.cos(radians)*settings.speed, Math.sin(radians)*settings.speed]; // 初速
     const samples: ParticleSample[] = []; // 同じ時刻では同じ配列内容を返す
-    for (let index = first; index <= last; index++) {
-        const birthUs = emitter.emission.kind === "burst" ? 0 : index / rate * MICROS_PER_SECOND; // 絶対番号から算出
-        const ageUs = elapsed - birthUs; // 粒子寿命内の時刻
-        if (ageUs < 0 || ageUs >= emitter.lifetimeUs) continue;
+    for (const { index, birth: birthUs, age: ageUs, lifetime } of activeBirths(emitter, layer, elapsed, tracks)) {
+        const offset = Math.round(birthUs); // キー評価は発生時の整数µs
+        const radians = (evaluateTrack(tracks?.get("direction"), offset, settings.directionDegrees) as number) * Math.PI / 180;
+        const speed = evaluateTrack(tracks?.get("speed"), offset, settings.speed) as number;
+        const acceleration = evaluateTrack(tracks?.get("acceleration"), offset, settings.acceleration) as Vec2;
+        const velocity: Vec2 = [Math.cos(radians) * speed, Math.sin(radians) * speed]; // 発生時の初速
         const u = random(settings.seed, index, 1), v = random(settings.seed, index, 2); // 形状内の一様サンプル
         let origin: Vec2 = [0, 0]; // 点発生の初期座標
         if (settings.shape.kind === "circle") {
@@ -91,11 +88,13 @@ export function evaluateParticles2D(project: Project2D, layerId: string, timeUs:
             origin = [(u-0.5)*settings.shape.width, (v-0.5)*settings.shape.height];
         }
         const seconds = ageUs / MICROS_PER_SECOND; // 運動式の秒単位
-        const local: Vec2 = [origin[0]+velocity[0]*seconds+0.5*settings.acceleration[0]*seconds**2,
-            origin[1]+velocity[1]*seconds+0.5*settings.acceleration[1]*seconds**2]; // 一定加速度の解析解
+        const local: Vec2 = [origin[0]+velocity[0]*seconds+0.5*acceleration[0]*seconds**2,
+            origin[1]+velocity[1]*seconds+0.5*acceleration[1]*seconds**2]; // 発生時に固定した加速度の解析解
         const position = transformPoint(settings.space === "world" ? transformAt(Math.round(layer.startUs+birthUs)) : current, local); // 発生時の基底か現在基底
         if (!position.every(Number.isFinite)) throw new RangeError("粒子座標が数値範囲を超えました。");
-        samples.push({ id: index, position, age: ageUs / emitter.lifetimeUs });
+        const size = tracks?.get("particleSize"); // 粒子自身の倍率
+        samples.push({ id: index, position, age: ageUs / lifetime,
+            ...(size ? { size: evaluateTrack(size, offset, 1) as number } : {}) });
     }
     return samples;
 }

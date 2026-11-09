@@ -167,3 +167,6 @@ AT-01/02/04の3D部分、AT-07の連続入力、AT-11の旧版・現行版保存
 
 ## T07追加検証
 `pnpm test` で線形補間、制御点検証、項目別継承、Undo/Redoと旧版・現行版の保存往復を確認する。`pnpm test:e2e --config playwright.t07.config.ts` でChromeとEdgeの実画素、暗色・明色の比較、保存、履歴と描画負荷を確認する。AT-13は背景と透過画素の技術確認までとし、連番・シート出力の検収はT13に残す。[検証記録](T07_VALIDATION.md)を参照。
+
+## T08追加検証
+AT-05/07/08/11で区間補間、同時刻のキー衝突、短縮時の保持・削除、2D・3Dの発生半開区間、決定性、版1〜5の読込を確認する。`pnpm test` と `pnpm test:e2e --config playwright.t08.config.ts` を使用する。[T08検証記録](T08_VALIDATION.md)

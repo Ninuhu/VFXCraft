@@ -1,13 +1,14 @@
-import type { Material, ProjectPreview, Emitter, Asset, Layer, LayerValues, Mode, Project, Track, TrackValue } from "../document/model.ts";
+import type { Material, ProjectPreview, Emitter, Asset, Layer, LayerValues, Mode, Project, Track, Keyframe } from "../document/model.ts";
 import { DocumentValidationError, validateProject } from "../document/validateDocument.ts";
 import { shareValidatedProject } from "./snapshot.ts";
 
-type LayerPatch = Partial<Pick<Layer, "name" | "order" | "isVisible" | "isLocked" | "startUs">>
+type LayerPatch = Partial<Pick<Layer, "name" | "order" | "isVisible" | "isLocked" | "startUs" | "emissionEndUs">>
     & { readonly values?: Partial<LayerValues<Mode>> };
 type TrackTarget = Pick<Track, "layerId" | "property">;
-type Keyframe = { readonly offsetUs: number; readonly value: TrackValue };
 
 export type EditCommand =
+    | { readonly kind: "timeline.duration"; readonly durationUs: number; readonly outside?: "keep" | "delete" }
+    | { readonly kind: "timeline.fps"; readonly productionFps: number }
     | { readonly kind: "material.appearance"; readonly materialId: string; readonly appearance: NonNullable<Material["appearance"]>;
         readonly color: Material["color"]; readonly blend: Material["blend"]; readonly textureAssetId?: Material["textureAssetId"] }
     | { readonly kind: "project.preview"; readonly preview: ProjectPreview }
@@ -18,13 +19,13 @@ export type EditCommand =
     | { readonly kind: "layer.update"; readonly layerId: string; readonly patch: LayerPatch }
     | { readonly kind: "layer.reparent"; readonly layerId: string; readonly parentId: string | null }
     | ({ readonly kind: "key.add"; readonly key: Keyframe; readonly interpolation?: Track["interpolation"] } & TrackTarget)
-    | ({ readonly kind: "key.update"; readonly offsetUs: number; readonly key: Keyframe } & TrackTarget)
+    | ({ readonly kind: "key.update"; readonly offsetUs: number; readonly key: Keyframe; readonly overwrite?: true } & TrackTarget)
     | ({ readonly kind: "key.remove"; readonly offsetUs: number } & TrackTarget)
     | { readonly kind: "asset.add"; readonly asset: Asset }
     | { readonly kind: "asset.remove"; readonly assetId: string }
     | { readonly kind: "material.setTexture"; readonly materialId: string; readonly assetId: string | null };
 
-const LAYER_PATCH_FIELDS = new Set(["name", "order", "isVisible", "isLocked", "startUs", "values"]); // 更新を許可する項目
+const LAYER_PATCH_FIELDS = new Set(["name", "order", "isVisible", "isLocked", "startUs", "emissionEndUs", "values"]); // 更新を許可する項目
 
 type KeyCommand = Extract<EditCommand, { kind: "key.add" | "key.update" | "key.remove" }>;
 
@@ -48,12 +49,21 @@ function editKeys(project: Project, command: KeyCommand): unknown {
     const layer = findEntity<Layer>(project.layers, command.layerId, "command.layerId"); // Trackの対象
     const track = project.tracks.find((item) => sameId(item.layerId, layer.id) && item.property === command.property); // 既存Track
     const keys: Keyframe[] = [...(track?.keys ?? [])]; // 編集候補のキー列
+    if (command.kind !== "key.remove" && (command.kind === "key.add" || command.offsetUs !== command.key.offsetUs)
+        && command.key.offsetUs > project.durationUs - layer.startUs) {
+        throw new DocumentValidationError("command.key.offsetUs", "移動先または追加先が制作尺の範囲外です。");
+    }
     if (command.kind === "key.add") {
         keys.push(command.key);
     } else {
         const index = keys.findIndex((key) => key.offsetUs === command.offsetUs); // 変更または削除するキー
         if (index === -1) throw new DocumentValidationError("command.offsetUs", "編集対象のキーが存在しません。");
-        if (command.kind === "key.update") keys[index] = command.key;
+        if (command.kind === "key.update") {
+            const collision = keys.findIndex((key, other) => other !== index && key.offsetUs === command.key.offsetUs); // 移動先のキー
+            if (collision >= 0 && command.overwrite !== true) throw new DocumentValidationError("command.key.offsetUs", "移動先にキーがあります。");
+            keys[index] = { ...keys[index]!, ...command.key };
+            if (collision >= 0) keys.splice(collision, 1);
+        }
         else keys.splice(index, 1);
     }
     if (track && keys.length === 0) {
@@ -72,9 +82,34 @@ function editKeys(project: Project, command: KeyCommand): unknown {
 }
 
 ////////////////////
+// 尺の変更と確認済みの範囲外キー処理を一つの履歴にまとめる
+function changeDuration(project: Project, command: Extract<EditCommand, { kind: "timeline.duration" }>): unknown {
+    const starts = new Map(project.layers.map((layer) => [layer.id.toLowerCase(), layer.startUs])); // レイヤー開始時刻
+    let outside = false; // 範囲外キーがあるか
+    const tracks = (project.tracks as readonly Track[]).flatMap<unknown>((track) => {
+        const maximum = command.durationUs - starts.get(track.layerId.toLowerCase())!; // 相対キーの上限
+        const keys = track.keys.filter((key) => key.offsetUs <= maximum); // 残すキー
+        if (keys.length === track.keys.length) return [track];
+        outside = true;
+        if (command.outside !== "delete") return [track];
+        return keys.length ? [{ ...track, keys }] : [];
+    });
+    if (outside && !command.outside && !(project.allowOutsideKeys && command.durationUs >= project.durationUs)) {
+        throw new DocumentValidationError("command.durationUs", "制作尺外のキーの処理を選んでください。");
+    }
+    const { allowOutsideKeys: _old, ...current } = project; // 延長後は不要な保持指定を除く
+    const keep = (outside && command.outside !== "delete") || project.layers.some((layer) => layer.startUs >= command.durationUs);
+    return { ...current, durationUs: command.durationUs, tracks, ...(keep ? { allowOutsideKeys: true } : {}) };
+}
+
+////////////////////
 // 元の文書を変更せずに編集候補を組み立てる
 function createCandidate(project: Project, command: EditCommand): unknown {
     switch (command.kind) {
+        case "timeline.duration":
+            return changeDuration(project, command);
+        case "timeline.fps":
+            return { ...project, productionFps: command.productionFps };
         case "project.preview":
             return { ...project, preview: command.preview };
         case "material.appearance": {
@@ -105,6 +140,9 @@ function createCandidate(project: Project, command: EditCommand): unknown {
             const layer = findEntity<Layer>(project.layers, command.layerId, "command.layerId"); // 変更対象
             if (command.kind === "layer.update" && Object.keys(command.patch).some((key) => !LAYER_PATCH_FIELDS.has(key))) {
                 throw new DocumentValidationError("command.patch", "変更できないレイヤー項目です。");
+            }
+            if (command.kind === "layer.update" && command.patch.startUs !== undefined && command.patch.startUs >= project.durationUs) {
+                throw new DocumentValidationError("command.patch.startUs", "レイヤー開始が制作尺の範囲外です。");
             }
             const changed = command.kind === "layer.update"
                 ? { ...layer, ...command.patch, values: { ...layer.values, ...command.patch.values } }
