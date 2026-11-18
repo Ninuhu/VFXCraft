@@ -431,7 +431,7 @@ export function validateProject(value: unknown, path = "project"): Project {
     if (!isProductionFps(input.productionFps)) fail(`${path}.productionFps`, "制作FPSが不正です。");
     const durationUs = integer(input.durationUs, `${path}.durationUs`, 1); // 制作尺（µs）
     const allowOutsideKeys = Object.hasOwn(input, "allowOutsideKeys"); // 短縮で保持した時間情報の許可
-    if (allowOutsideKeys && (version < DOCUMENT_SCHEMA_VERSION || input.allowOutsideKeys !== true)) {
+    if (allowOutsideKeys && (version < 5 || input.allowOutsideKeys !== true)) {
         fail(path + ".allowOutsideKeys", "制作尺外の保持指定が不正です。");
     }
     const common = {
@@ -449,7 +449,7 @@ export function validateProject(value: unknown, path = "project"): Project {
                 : { ...emitter, particle3d: emitter.particle3d ?? DEFAULT_PARTICLE_3D };
         }),
         materials: list(input.materials, `${path}.materials`, readMaterial),
-        tracks: list(input.tracks, `${path}.tracks`, (item, location) => readTrack(item, location, mode, version < DOCUMENT_SCHEMA_VERSION)),
+        tracks: list(input.tracks, `${path}.tracks`, (item, location) => readTrack(item, location, mode, version < 5)),
         assets: list(input.assets, `${path}.assets`, readAsset),
     } as const; // 指定モードで読み込んだ共通項目
     if (mode === "3d" && ["drawing", "canvasWidth", "canvasHeight", "pixelScale"].some((field) => Object.hasOwn(input, field))) {

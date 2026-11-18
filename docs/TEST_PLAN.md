@@ -170,3 +170,6 @@ AT-01/02/04の3D部分、AT-07の連続入力、AT-11の旧版・現行版保存
 
 ## T08追加検証
 AT-05/07/08/11で区間補間、同時刻のキー衝突、短縮時の保持・削除、2D・3Dの発生半開区間、決定性、版1〜5の読込を確認する。`pnpm test` と `pnpm test:e2e --config playwright.t08.config.ts` を使用する。[T08検証記録](T08_VALIDATION.md)
+
+## T09追加検証
+AT-06/07/08/11で多階層、通常粒子の親、再親子化のTRS維持と拒否、キーと発生時刻の独立、外観継承、コマンド側ロック、削除・複製の参照と素材共有を検証する。`pnpm test:e2e --config playwright.t09.config.ts` でChrome・Edgeの操作とCPU負荷を計測する。既存T05〜T08の回帰も実行する。[検証記録](T09_VALIDATION.md)

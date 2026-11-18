@@ -1,8 +1,9 @@
-import type { Layer, LayerValues, Particle3D, Project, Vec3 } from "../document/model.ts";
+import type { Particle3D, Project, Vec3 } from "../document/model.ts";
 import { evaluateTrack } from "../document/evaluateTrack.ts";
-import { layerValuesAt, materialValuesAt, tracksFor } from "../document/animation.ts";
+import { materialValuesAt, tracksFor } from "../document/animation.ts";
 import { isNonNegativeSafeInteger, MICROS_PER_SECOND } from "../document/time.ts";
 import { activeBirths } from "./animatedEmission.ts";
+import { hierarchyAt, transformPosition } from "../document/hierarchy.ts";
 
 export type Project3D = Extract<Project, { mode: "3d" }>;
 export type ParticleSample3D = {
@@ -17,40 +18,16 @@ export type ParticleSample3D = {
     readonly age: number; // 正規化した粒子寿命
     readonly materialOpacity?: number; // アニメーション時だけ基準値を上書き
     readonly bloomStrength?: number; // マテリアルを共有してもレイヤー固有に評価
+    readonly basis2d?: { right: Vec3; up: Vec3 }; // 2D階層の描画用基底
 };
 export type Transform3D = (point: Vec3) => Vec3;
 
 ////////////////////
-// 正規化済みQuaternionでベクトルを回転する
-function applyValues(point: Vec3, values: LayerValues<"3d">): Vec3 {
-    const [qx, qy, qz, qw] = values.rotation; // 姿勢
-    const x = point[0] * values.size[0], y = point[1] * values.size[1], z = point[2] * values.size[2]; // 拡大した座標
-    const tx = 2 * (qy * z - qz * y), ty = 2 * (qz * x - qx * z), tz = 2 * (qx * y - qy * x); // 回転の外積
-    return [x + qw * tx + qy * tz - qz * ty + values.position[0],
-        y + qw * ty + qz * tx - qx * tz + values.position[1],
-        z + qw * tz + qx * ty - qy * tx + values.position[2]];
-}
-
-////////////////////
-// 子から親へ変換する評価済み関数を作り、各粒子の変換でモデルを再検索しない
+// 共通の階層行列を閉じ込め、粒子ごとの親探索を避ける
 export function layerTransform3D(project: Project3D, layerId: string, timeUs: number): Transform3D {
-    const chain: LayerValues<"3d">[] = []; // 子から親の順の変換
-    let layer: Layer<"3d"> | undefined = project.layers.find((entry) => entry.id.toLowerCase() === layerId.toLowerCase()); // 対象
-    if (!layer) throw new Error("レイヤーが存在しません。");
-    while (layer) {
-        const current: Layer<"3d"> = layer; // 型の絞り込みを維持する
-        chain.push(layerValuesAt(project, current, timeUs));
-        layer = current.parentId === null ? undefined
-            : project.layers.find((item) => item.id.toLowerCase() === current.parentId!.toLowerCase());
-    }
-    return (point) => {
-        let result = point; // ワールドへ向けて合成する座標
-        for (const values of chain) result = applyValues(result, values);
-        if (!result.every(Number.isFinite)) throw new RangeError("変換結果が有限数ではありません。");
-        return result;
-    };
+    const matrix = hierarchyAt(project, layerId, timeUs).matrix; // 指定時刻のワールド変換
+    return (point) => transformPosition(matrix, point);
 }
-
 ////////////////////
 // 方向を安全に単位化する。大きな有限成分でも二乗であふれさせない
 function unitDirection(direction: Vec3): Vec3 {
@@ -66,7 +43,7 @@ export function evaluateParticles3D(project: Project3D, timeUs: number): Particl
     if (!isNonNegativeSafeInteger(timeUs)) throw new RangeError("評価時刻が不正です。");
     const output: ParticleSample3D[] = []; // 全発生器をまたぐ粒子集合
     for (const layer of project.layers) {
-        if (!layer.isVisible || layer.content.kind !== "emitter" || timeUs < layer.startUs) continue;
+        if (layer.content.kind !== "emitter" || timeUs < layer.startUs || !hierarchyAt(project, layer.id, timeUs).visible) continue;
         const emitterId = layer.content.emitterId; // 参照する発生器
         const emitter = project.emitters.find((entry) => entry.id.toLowerCase() === emitterId.toLowerCase())!; // 検証済みモデル
         const settings = emitter.particle3d; // 3D固有設定
@@ -76,7 +53,7 @@ export function evaluateParticles3D(project: Project3D, timeUs: number): Particl
         const baseDirection = unitDirection(settings.direction); // キーがない場合とゼロ方向の代替
         const current = layerTransform3D(project, layer.id, timeUs); // ローカル空間の共通変換
         const material = project.materials.find((entry) => entry.id.toLowerCase() === emitter.materialId.toLowerCase())!; // 基本色と透明度の描画用
-        const layerValues = layerValuesAt(project, layer, timeUs); // 現在時刻の色と透明度
+        const layerValues = hierarchyAt(project, layer.id, timeUs); // 現在時刻の色と透明度
         const appearance = materialValuesAt(project, layer, material, timeUs); // 現在時刻の材質
         for (const { index, birth, age, lifetime } of activeBirths(emitter, layer, elapsed, tracks)) {
             if (output.length >= 200_000) throw new RangeError("全体の粒子数が安全上限を超えています。");

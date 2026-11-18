@@ -84,7 +84,7 @@ test("固定されたT04・T05検体とT06のZIPを読み、旧フィールド�
     for (const name of ["t04-2d-v1.vcr", "t04-3d-v1.vcr", "t05-2d-v2.vcr"]) {
         const bytes = await readFile(new URL("./fixtures/vcr/" + name, import.meta.url));
         const { project } = await readVcr(new Blob([bytes]), REVIEW_VCR_LIMITS, verify);
-        assert.equal(project.schemaVersion, 5);
+        assert.equal(project.schemaVersion, 6);
         assert.ok(project.materials.every((material) => material.appearance === undefined));
     }
     const doc = fixture("3d"); // スキーマ3の旧フィールドだけで構成する
@@ -106,7 +106,7 @@ test("材質と背景上書きが2D・3Dの.vcrで往復する", async () => {
             materials: [{ ...base.materials[0], blend: "multiply", appearance: { ...DEFAULT_APPEARANCE, bloomStrength: 4 } }] });
         const file = await writeVcr({ project, images: new Map() }, REVIEW_VCR_LIMITS, verify, "0.0.0");
         assert.deepEqual((await readVcr(file, REVIEW_VCR_LIMITS, verify)).project, project);
-        assert.throws(() => validateProject({ ...project, schemaVersion: 6 }));
+        assert.throws(() => validateProject({ ...project, schemaVersion: 7 }));
         assert.throws(() => validateProject({ ...project, preview: { ...project.preview, unknown: true } }));
     }
 });
