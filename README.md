@@ -65,3 +65,9 @@ T01の検証用アプリは `pnpm install --frozen-lockfile` の後、`pnpm dev`
 
 - [T01検証記録](docs/development/T01_VALIDATION.md)
 - [Edge手動確認手順](docs/development/T01_EDGE_CHECK.md)
+
+## T10 正式UIの起動
+
+`pnpm dev`で起動後、`http://127.0.0.1:5173/`は正式ホームを開きます。新規作成から2D/3Dと空・基本・サンプルを選べます。T01の技術検証画面は`/?technical-review`へ移し、T04〜T09の検証URLは維持しています。
+
+正式UIの検証は`pnpm exec playwright test --config=playwright.t10.config.ts`、本番成果物の確認は`pnpm build`の後に`pnpm exec playwright test --config=playwright.t10-production.config.ts`で実行できます。プリセット収録・製品出力・完全なヘルプ等は後続タスクです。[T10検証記録](docs/T10_VALIDATION.md)と[ADR-013](docs/architecture/ADR-013.md)で実装範囲・検証済み範囲を確認してください。

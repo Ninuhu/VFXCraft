@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { PreviewOptions } from "../../src/verification/WebGlPreview";
 
 test("Chromeで描画負荷の参考値を測る", async ({ page, browser }) => {
-    await page.goto("/");
+    await page.goto("/?technical-review");
     await page.getByRole("button", { name: "一時停止" }).click();
     const measurements = await page.evaluate(async () => {
         const modulePath = "/src/verification/WebGlPreview.ts"; // Viteで読み込む検証用描画器

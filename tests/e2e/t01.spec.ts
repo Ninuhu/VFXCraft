@@ -2,9 +2,10 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 
 test("描画モードとカメラ操作を切り替えられる", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?technical-review");
     const canvas = page.locator('canvas[aria-label="粒子描画プレビュー"]'); // GPUの描画面
     const mode = page.getByRole("combobox", { name: "描画方式" }); // 描画モードの操作
+    await expect(canvas).toBeVisible({ timeout: 30_000 }); // T10以降は検証画面を遅延ロードする
     await expect(canvas).toHaveAttribute("width", "640");
     await mode.selectOption("pixel");
     await expect(canvas).toHaveAttribute("width", "160");
@@ -28,7 +29,7 @@ test("描画モードとカメラ操作を切り替えられる", async ({ page 
 });
 
 test("IndexedDBから画像を復元し、透過PNGを出力できる", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?technical-review");
     const mode = page.getByRole("combobox", { name: "描画方式" }); // 復元後に照合する設定
     const restore = page.getByRole("button", { name: "保存データを復元" }); // 保存枠の読み込み操作
     await restore.click();

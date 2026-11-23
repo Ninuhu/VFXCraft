@@ -42,3 +42,14 @@ export function parseTimelineTime(input: string, unit: "seconds" | "frames", fps
     if (!isNonNegativeSafeInteger(result)) throw new RangeError("時刻が安全整数範囲を超えています。");
     return result;
 }
+
+export type PlaybackClock = { time: number; anchor: number; wall: number; playing: boolean; speed: PlaybackSpeed; loop: boolean };
+
+////////////////////
+// パネルの表示状態によらず同じ壁時計アンカーから現在時刻を評価する。
+export function advancePlaybackClock(state: PlaybackClock, now: number, duration: number): void {
+    if (!state.playing) return;
+    const elapsed = Math.max(0, Math.round((now - state.wall) * 1000 * state.speed)); // 実時間msを制作µsへ変換
+    state.time = playbackPosition(Math.min(state.anchor, duration), elapsed, duration, state.loop);
+    if (!state.loop && state.time === duration) state.playing = false;
+}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { baseTrackValue, tracksFor } from "../../core/document/animation.ts";
 import { evaluateTrack } from "../../core/document/evaluateTrack.ts";
 import type { Keyframe, Mode, Project, TrackProperty } from "../../core/document/model.ts";
-import { parseTimelineTime, playbackPosition, PLAYBACK_SPEEDS, snapTimeUs, timeUsToFrame, type PlaybackSpeed } from "../../core/document/playback.ts";
+import { advancePlaybackClock, parseTimelineTime, PLAYBACK_SPEEDS, snapTimeUs, timeUsToFrame, type PlaybackClock, type PlaybackSpeed } from "../../core/document/playback.ts";
 import { frameToTimeUs, MICROS_PER_SECOND } from "../../core/document/time.ts";
 import type { EditCommand } from "../../core/editing/command.ts";
 import { DEFAULT_BACKGROUND } from "../../core/materials/materialEvaluation.ts";
@@ -30,8 +30,13 @@ function displayTime(time: number, unit: Unit, fps: number): number {
 
 ////////////////////
 // ファイル操作と同じ編集セッションを使う2D・3Dの検証画面
-export function TimelineReview({ session, embedded = false, sharedTime, onChange }: {
+export type TimelineActions = { toggle(): void; stop(): void; step(direction: number): void; addKey(): void };
+export function TimelineReview({ session, embedded = false, sharedTime, onChange, panelOnly = false, controller, activeLayer, sharedClock, onSelectLayer, shortcutTips }: {
     session?: ProjectFileFlow; embedded?: boolean; sharedTime?: { current: number }; onChange?: () => void;
+    panelOnly?: boolean; controller?: { current: TimelineActions | null }; activeLayer?: string | null;
+    sharedClock?: { current: PlaybackClock };
+    onSelectLayer?: (id: string) => void;
+    shortcutTips?: Partial<Record<"play" | "previous" | "next", string>>;
 } = {}) {
     const [mode, setMode] = useState<Mode>("2d"); // サンプルの編集モード
     const [sessions] = useState(() => session ? { "2d": session, "3d": session } : ({
@@ -43,15 +48,16 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
     const [unit, setUnit] = useState<Unit>("seconds");
     const [zoom, setZoom] = useState(1);
     const [snap, setSnap] = useState(true);
-    const [loop, setLoop] = useState(true);
-    const [speed, setSpeed] = useState<PlaybackSpeed>(1);
+    const [loop, setLoop] = useState(sharedClock?.current.loop ?? true);
+    const [speed, setSpeed] = useState<PlaybackSpeed>(sharedClock?.current.speed ?? 1);
     const [layerId, selectLayer] = useState("");
     const [property, selectProperty] = useState<TrackProperty>("position");
     const [selection, selectKey] = useState<Selection>();
     const [pending, setPending] = useState<Pending>();
     const [message, setMessage] = useState("");
     const [, refresh] = useState(0); // 文書を編集したときだけReactを更新
-    const clock = useRef({ time: 0, anchor: 0, wall: 0, playing: false, speed: 1 as PlaybackSpeed, loop: true }); // 再生時計
+    const ownClock = useRef({ time: 0, anchor: 0, wall: 0, playing: false, speed: 1 as PlaybackSpeed, loop: true }); // 検証画面単独の再生時計
+    const clock = sharedClock ?? ownClock; // 正式UIではパネルの外側が時計を所有する
     const viewUnit = useRef(unit); // フレームループ用の表示単位
     viewUnit.current = unit;
     const canvas = useRef<HTMLCanvasElement>(null);
@@ -61,7 +67,7 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
     const scroll = useRef<HTMLDivElement>(null);
     const drag = useRef<{ target: Drag; pointer: number; startX: number; original: number; project: Project;
         marker: HTMLButtonElement; left: string } | undefined>(undefined); // 仮移動
-    const layer = project.layers.find((item) => item.id === layerId) ?? project.layers[0]; // 選択が消えた場合の代替
+    const layer = project.layers.find((item) => item.id === (activeLayer ?? layerId)) ?? project.layers[0]; // 正式UIの選択は外側が正本
     const emitterId = layer?.content.kind === "emitter" ? layer.content.emitterId : undefined;
     const emitter = project.emitters.find((item) => item.id.toLowerCase() === emitterId?.toLowerCase());
     const material = project.materials.find((item) => item.id.toLowerCase() === emitter?.materialId.toLowerCase());
@@ -83,6 +89,10 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
     }
 
     ////////////////////
+    // 正式UIではHierarchyと同じアクティブ層を選び、検証画面では単独の選択を維持する。
+    function chooseLayer(id: string) { selectLayer(id); onSelectLayer?.(id); }
+
+    ////////////////////
     // 数値入力を現在の単位で解釈する
     function readTime(input: string, accept: (time: number) => void) {
         try { accept(parseTimelineTime(input, unit, project.productionFps)); }
@@ -92,11 +102,7 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
     ////////////////////
     // 再生中の位置を壁時計アンカーから計算する
     function updateClock(now: number, duration: number) {
-        const state = clock.current; // UIとは独立した時計
-        if (!state.playing) return;
-        const elapsed = Math.max(0, Math.round((now - state.wall) * 1000 * state.speed)); // 実時間を制作µsへ変換
-        state.time = playbackPosition(Math.min(state.anchor, duration), elapsed, duration, state.loop);
-        if (!state.loop && state.time === duration) state.playing = false;
+        advancePlaybackClock(clock.current, now, duration);
     }
 
     ////////////////////
@@ -106,7 +112,16 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
         clock.current.time = time;
         clock.current.playing = false;
         if (sharedTime) sharedTime.current = time;
+        publishTime();
         onChange?.();
+    }
+
+    ////////////////////
+    // 一時停止・手動シークの直後も次のRAFを待たず確定時刻を表示する。
+    function publishTime() {
+        const time = clock.current.time; // 再生時計の確定済み位置
+        if (readout.current) readout.current.value = String(displayTime(time, viewUnit.current, project.productionFps)) + (viewUnit.current === "seconds" ? " 秒" : " フレーム");
+        if (playhead.current) playhead.current.style.left = (time / project.durationUs * 100) + "%";
     }
 
     ////////////////////
@@ -117,6 +132,29 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
         clock.current.anchor = clock.current.time;
         clock.current.wall = now;
     }
+
+    // 正式UIのショートカットも同じ再生時計とキー追加経路を使う。
+    useEffect(() => {
+        if (activeLayer) selectLayer(activeLayer);
+    }, [activeLayer]);
+    useEffect(() => {
+        if (!controller) return;
+        controller.current = {
+            toggle() { reanchor(); clock.current.playing = !clock.current.playing; publishTime(); },
+            stop() { seek(0); },
+            step(direction) { seek(Math.max(0, Math.min(project.durationUs, frameToTimeUs(Math.max(0, timeUsToFrame(sharedTime?.current ?? clock.current.time, project.productionFps) + direction), project.productionFps)))); },
+            addKey() {
+                if (!layer) return;
+                const offsetUs = (sharedTime?.current ?? clock.current.time) - layer.startUs;
+                const base = baseTrackValue(layer, emitter, material, property);
+                if (base === undefined) return;
+                const existing = track?.keys.find((item) => item.offsetUs === offsetUs);
+                execute(existing ? { kind: "key.update", layerId: layer.id, property, offsetUs, key: existing }
+                    : { kind: "key.add", layerId: layer.id, property, key: { offsetUs, value: evaluateTrack(track, offsetUs, base) } });
+            },
+        };
+        return () => { controller.current = null; };
+    });
 
     ////////////////////
     // 選択中のキーを編集し、衝突時は確定済み文書を触らず確認を待つ
@@ -159,14 +197,14 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
             onClick={(event) => {
                 if (event.detail !== 0) return; // マウスはポインタダウンで選択済み
                 if (target.kind === "key") {
-                    selectLayer(target.selection.layerId); selectProperty(target.selection.property); selectKey(target.selection);
-                } else selectLayer(target.layerId);
+                    chooseLayer(target.selection.layerId); selectProperty(target.selection.property); selectKey(target.selection);
+                } else chooseLayer(target.layerId);
             }}
             onPointerDown={(event) => {
                 if (event.button !== 0) return;
                 if (target.kind === "key") {
-                    selectLayer(target.selection.layerId); selectProperty(target.selection.property); selectKey(target.selection);
-                } else selectLayer(target.layerId);
+                    chooseLayer(target.selection.layerId); selectProperty(target.selection.property); selectKey(target.selection);
+                } else chooseLayer(target.layerId);
                 const element = event.currentTarget; // 仮位置だけを更新する実際のマーカー
                 drag.current = { target, pointer: event.pointerId, startX: event.clientX, original: time,
                     project, marker: element, left: element.style.left };
@@ -191,7 +229,7 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
                     const start = project.layers.find((item) => item.id === target.selection.layerId)!.startUs;
                     const moving = tracksFor(project, target.selection.layerId)?.get(target.selection.property)?.keys.find((item) => item.offsetUs === target.selection.offsetUs);
                     if (moving) {
-                        selectLayer(target.selection.layerId); selectProperty(target.selection.property);
+                        chooseLayer(target.selection.layerId); selectProperty(target.selection.property);
                         changeKey(target.selection, { ...moving, offsetUs: destination - start });
                     }
                 } else execute({ kind: "layer.update", layerId: target.layerId,
@@ -202,8 +240,8 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
     ////////////////////
     // フレーム評価と素材デコードを画面の寿命に合わせる。Reactは毎フレーム更新しない
     useEffect(() => {
-        let renderer: MaterialPreview; // プレビューのGPU資源
-        try { renderer = new MaterialPreview(canvas.current!); }
+        let renderer: MaterialPreview | undefined; // 正式UIでは外側のプレビューがGPU資源を所有する
+        try { if (!panelOnly) renderer = new MaterialPreview(canvas.current!); }
         catch (error) { setMessage(String(error)); return; }
         let handle = 0, disposed = false, lastTime = -1, imageVersion = 0, lastImageVersion = -1;
         let lastProject: Project | undefined; // 前回評価した文書
@@ -246,7 +284,7 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
                     if (x < 0 || x > viewport.clientWidth) viewport.scrollLeft += x - viewport.clientWidth / 3;
                 }
             }
-            if (changed || imageVersion !== lastImageVersion) {
+            if (renderer && (changed || imageVersion !== lastImageVersion)) {
                 try {
                     const result = renderer.draw(current, time, { images, light: false, background: DEFAULT_BACKGROUND });
                     if (status.current) status.current.textContent = "粒子 " + result.count + " / GL " + renderer.glError;
@@ -257,32 +295,33 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
         }
         handle = requestAnimationFrame(render);
         return () => {
-            disposed = true; cancelAnimationFrame(handle); renderer.dispose();
+            disposed = true; cancelAnimationFrame(handle); renderer?.dispose();
             for (const bitmap of images.values()) bitmap.close();
         };
-    }, [flow]);
+    }, [flow, panelOnly]);
 
     const divisions = 8 * zoom; // 拡大すると目盛りを細分化
     const marks = Array.from({ length: divisions + 1 }, (_, index) => Math.round(project.durationUs * (index / divisions)));
     return <div className="timeline-review" onKeyDown={(event) => {
         if (event.key === "Escape" && drag.current) clearDrag();
     }}>
-        <h1>T08 タイムライン・キーフレーム・詳細再生</h1>
-        <p><a href="?materials-review">T07 マテリアル検証</a></p>
+        {!panelOnly && <><h1>T08 タイムライン・キーフレーム・詳細再生</h1>
+        <p><a href="?materials-review">T07 マテリアル検証</a></p></>}
         {!session && <label>サンプル<select aria-label="サンプル" value={mode} onChange={(event) => {
             seek(0); setMode(event.currentTarget.value as Mode); selectLayer(""); selectKey(undefined); selectProperty("position");
         }}><option value="2d">2D</option><option value="3d">3D</option></select></label>}
-        <canvas aria-label="タイムラインプレビュー" ref={canvas} />
-        <p ref={status} aria-label="描画状態" />
+        {!panelOnly && <><canvas aria-label="タイムラインプレビュー" ref={canvas} />
+        <p ref={status} aria-label="描画状態" /></>}
         <fieldset className="timeline-toolbar"><legend>再生と時間表示</legend>
-            <button onClick={() => { if (!clock.current.playing) { reanchor(); clock.current.playing = true; } }}>再生</button>
-            <button onClick={() => {
+            <button title={shortcutTips?.play ?? "現在の再生ヘッドから再生します。"} onClick={() => { if (!clock.current.playing) { reanchor(); clock.current.playing = true; } }}>再生</button>
+            <button title={shortcutTips?.play ?? "現在の時刻を維持して一時停止します。"} onClick={() => {
                 reanchor(); clock.current.playing = false;
+                publishTime();
                 if (sharedTime) sharedTime.current = clock.current.time;
                 onChange?.();
             }}>一時停止</button>
-            <button onClick={() => seek(0)}>停止</button>
-            {[-1, 1].map((direction) => <button key={direction} onClick={() => {
+            <button title="再生を終了し、0秒の粒子状態へ戻します。" onClick={() => seek(0)}>停止</button>
+            {[-1, 1].map((direction) => <button key={direction} title={direction === -1 ? shortcutTips?.previous : shortcutTips?.next} onClick={() => {
                 const frame = timeUsToFrame(clock.current.time, project.productionFps); // 現在位置に最も近い制作フレーム
                 seek(Math.min(project.durationUs, frameToTimeUs(Math.max(0, frame + direction), project.productionFps)));
             }}>{direction < 0 ? "前のフレーム" : "次のフレーム"}</button>)}
@@ -346,7 +385,7 @@ export function TimelineReview({ session, embedded = false, sharedTime, onChange
         </div>
         {layer && <fieldset className="timeline-toolbar"><legend>レイヤーとキーの編集</legend>
             <label>レイヤー<select aria-label="レイヤー" value={layer.id} onChange={(event) => {
-                selectLayer(event.currentTarget.value); selectProperty("position"); selectKey(undefined);
+                chooseLayer(event.currentTarget.value); selectProperty("position"); selectKey(undefined);
             }}>{project.layers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <TimelineNumber label="発生開始" value={displayTime(layer.startUs, unit, project.productionFps)} onCommit={(input) =>
                 readTime(input, (startUs) => execute({ kind: "layer.update", layerId: layer.id, patch: { startUs } }))} />
