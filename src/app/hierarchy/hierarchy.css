@@ -1,0 +1,22 @@
+.hierarchy-review { max-width: 1180px; margin: auto; padding: 1rem; background: #1b1728; color: #eee8f6; }
+.hierarchy-review a, .hierarchy-review legend { color: #d2b3ff; }
+.hierarchy-layout { display: grid; grid-template-columns: minmax(17rem, 2fr) minmax(0, 3fr); gap: 1rem; margin-block: 1rem; }
+.hierarchy-layout canvas { width: 100%; height: auto; border: 1px solid #65527e; display: block; }
+.hierarchy-tree { padding: 0.5rem; list-style: none; border: 1px solid #65527e; max-height: 30rem; overflow: auto; }
+.hierarchy-tree li { display: flex; gap: 0.25rem; align-items: center; min-height: 2.5rem; border: 1px solid transparent; }
+.hierarchy-tree li[data-selected="true"] { background: #4a346d; border-color: #ac7dff; }
+.hierarchy-tree li[data-drop="valid"] { outline: 2px solid #aaedc5; }
+.hierarchy-tree li[data-drop="invalid"] { outline: 2px solid #ed8da0; }
+.hierarchy-tree li button { padding: 0.35rem; }
+.hierarchy-review label { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0.25rem; }
+.hierarchy-review input[type="number"] { width: 7rem; }
+.hierarchy-toolbar, .hierarchy-inspector { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.hierarchy-inspector { border: 1px solid #65527e; padding: 0.8rem; }
+.hierarchy-inspector fieldset { border: 1px solid #65527e; }
+.hierarchy-inspector fieldset label { display: flex; }
+.hierarchy-review dialog { background: #281f38; color: #fff; border: 1px solid #a27cd4; }
+.hierarchy-review dialog button { margin-inline-end: 0.5rem; }
+.hierarchy-review details { border: 1px solid #65527e; margin-block: 1rem; }
+.hierarchy-review summary { padding: 0.75rem; cursor: pointer; }
+.transform-drag { touch-action: none; cursor: ew-resize; }
+@media (max-width: 780px) { .hierarchy-layout { grid-template-columns: 1fr; } }

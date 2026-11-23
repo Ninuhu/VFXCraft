@@ -1,12 +1,15 @@
 import type { Material, ProjectPreview, Emitter, Asset, Layer, LayerValues, Mode, Project, Track, Keyframe } from "../document/model.ts";
 import { DocumentValidationError, validateProject } from "../document/validateDocument.ts";
 import { shareValidatedProject } from "./snapshot.ts";
+import { editHierarchy, reparentLayer, removeHierarchy, type HierarchyCommand } from "./hierarchyCommands.ts";
+import { protectEditing } from "./protectEditing.ts";
 
 type LayerPatch = Partial<Pick<Layer, "name" | "order" | "isVisible" | "isLocked" | "startUs" | "emissionEndUs">>
     & { readonly values?: Partial<LayerValues<Mode>> };
 type TrackTarget = Pick<Track, "layerId" | "property">;
 
 export type EditCommand =
+    | HierarchyCommand
     | { readonly kind: "timeline.duration"; readonly durationUs: number; readonly outside?: "keep" | "delete" }
     | { readonly kind: "timeline.fps"; readonly productionFps: number }
     | { readonly kind: "material.appearance"; readonly materialId: string; readonly appearance: NonNullable<Material["appearance"]>;
@@ -15,9 +18,9 @@ export type EditCommand =
     | { readonly kind: "emitter.update"; readonly emitterId: string; readonly settings: Pick<Emitter, "emission" | "lifetimeUs" | "particle2d" | "particle3d"> }
     | { readonly kind: "drawing.update"; readonly drawing: "normal" | "pixel"; readonly pixelScale: number }
     | { readonly kind: "layer.add"; readonly layer: Layer }
-    | { readonly kind: "layer.remove"; readonly layerId: string }
+    | { readonly kind: "layer.remove"; readonly layerId: string; readonly descendants?: true }
     | { readonly kind: "layer.update"; readonly layerId: string; readonly patch: LayerPatch }
-    | { readonly kind: "layer.reparent"; readonly layerId: string; readonly parentId: string | null }
+    | { readonly kind: "layer.reparent"; readonly layerId: string; readonly parentId: string | null; readonly timeUs?: number }
     | ({ readonly kind: "key.add"; readonly key: Keyframe; readonly interpolation?: Track["interpolation"] } & TrackTarget)
     | ({ readonly kind: "key.update"; readonly offsetUs: number; readonly key: Keyframe; readonly overwrite?: true } & TrackTarget)
     | ({ readonly kind: "key.remove"; readonly offsetUs: number } & TrackTarget)
@@ -106,6 +109,13 @@ function changeDuration(project: Project, command: Extract<EditCommand, { kind: 
 // 元の文書を変更せずに編集候補を組み立てる
 function createCandidate(project: Project, command: EditCommand): unknown {
     switch (command.kind) {
+        case "layer.transform":
+        case "hierarchy.add":
+        case "hierarchy.duplicate":
+        case "hierarchy.reorder":
+            return editHierarchy(project, command);
+        case "layer.reparent":
+            return reparentLayer(project, command.layerId, command.parentId, command.timeUs ?? 0);
         case "timeline.duration":
             return changeDuration(project, command);
         case "timeline.fps":
@@ -130,13 +140,9 @@ function createCandidate(project: Project, command: EditCommand): unknown {
             return { ...project, drawing: command.drawing, pixelScale: command.pixelScale };
         case "layer.add":
             return { ...project, layers: [...project.layers, command.layer] };
-        case "layer.remove": {
-            const layer = findEntity<Layer>(project.layers, command.layerId, "command.layerId"); // 削除対象
-            return { ...project, layers: project.layers.filter((item) => item !== layer),
-                tracks: project.tracks.filter((item) => !sameId(item.layerId, layer.id)) };
-        }
-        case "layer.update":
-        case "layer.reparent": {
+        case "layer.remove":
+            return removeHierarchy(project, command.layerId, command.descendants === true);
+        case "layer.update": {
             const layer = findEntity<Layer>(project.layers, command.layerId, "command.layerId"); // 変更対象
             if (command.kind === "layer.update" && Object.keys(command.patch).some((key) => !LAYER_PATCH_FIELDS.has(key))) {
                 throw new DocumentValidationError("command.patch", "変更できないレイヤー項目です。");
@@ -144,10 +150,7 @@ function createCandidate(project: Project, command: EditCommand): unknown {
             if (command.kind === "layer.update" && command.patch.startUs !== undefined && command.patch.startUs >= project.durationUs) {
                 throw new DocumentValidationError("command.patch.startUs", "レイヤー開始が制作尺の範囲外です。");
             }
-            const changed = command.kind === "layer.update"
-                ? { ...layer, ...command.patch, values: { ...layer.values, ...command.patch.values } }
-                : { ...layer, parentId: layer.parentId !== null && command.parentId !== null
-                    && sameId(layer.parentId, command.parentId) ? layer.parentId : command.parentId }; // ローカル値は保持する
+            const changed = { ...layer, ...command.patch, values: { ...layer.values, ...command.patch.values } }; // 親の変更は専用コマンドへ
             return { ...project, layers: project.layers.map((item) => item === layer ? changed : item) };
         }
         case "key.add":
@@ -180,6 +183,12 @@ function createCandidate(project: Project, command: EditCommand): unknown {
 ////////////////////
 // 候補をT02で検証し、変更のない部分を共有する確定可能な文書を返す
 export function applyEditCommand(project: Project, command: EditCommand): Project {
-    const validated = validateProject(createCandidate(project, command)); // 参照を含めて検証済みの候補
-    return shareValidatedProject(project, validated);
+    try {
+        protectEditing(project, command);
+        const validated = validateProject(createCandidate(project, command)); // 参照を含めて検証済みの候補
+        return shareValidatedProject(project, validated);
+    } catch (error) {
+        if (error instanceof RangeError) throw new DocumentValidationError("command", error.message);
+        throw error;
+    }
 }

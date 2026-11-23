@@ -1,12 +1,14 @@
 import type { Project, Vec2 } from "../document/model.ts";
 import { activeBirths } from "./animatedEmission.ts";
-import { layerValuesAt, tracksFor } from "../document/animation.ts";
+import { hierarchyAt } from "../document/hierarchy.ts";
+import { tracksFor } from "../document/animation.ts";
 import { evaluateTrack } from "../document/evaluateTrack.ts";
 import { isNonNegativeSafeInteger, MICROS_PER_SECOND } from "../document/time.ts";
 
 export type Project2D = Extract<Project, { mode: "2d" }>;
 export type Matrix2D = readonly [number, number, number, number, number, number];
-export type ParticleSample = { readonly id: number; readonly position: Vec2; readonly age: number; readonly size?: number };
+export type ParticleSample = { readonly id: number; readonly position: Vec2; readonly age: number; readonly size?: number;
+    readonly transform?: Matrix2D };
 export type TransformAt = (timeUs: number) => Matrix2D;
 const IDENTITY: Matrix2D = [1, 0, 0, 1, 0, 0]; // 親のない座標の単位行列
 
@@ -19,35 +21,11 @@ export function transformPoint(matrix: Matrix2D, point: Vec2): Vec2 {
 }
 
 ////////////////////
-// 親ローカルの変換をワールド座標へ合成する
-function multiply(a: Matrix2D, b: Matrix2D): Matrix2D {
-    return [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1],
-        a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3],
-        a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
-}
-
-////////////////////
-// 時間評価済みの位置・回転・サイズから親を含む変換を求める
+// 2Dの既存APIへ共通の階層行列を変換する
 export function layerTransform(project: Project2D, layerId: string, timeUs: number): Matrix2D {
-    const chain = []; // 子から親へたどるレイヤー
-    let layer = project.layers.find((item) => item.id.toLowerCase() === layerId.toLowerCase()); // 評価対象
-    if (!layer) throw new Error("レイヤーが存在しません。");
-    while (layer) {
-        chain.push(layer);
-        layer = layer.parentId === null ? undefined
-            : project.layers.find((item) => item.id.toLowerCase() === layer!.parentId!.toLowerCase());
-    }
-    let result = IDENTITY; // ワールド変換
-    for (const item of chain.reverse()) {
-        const values = layerValuesAt(project, item, timeUs); // 指定時刻の変換
-        const angle = values.rotation * Math.PI / 180; // 時計回りの度数をラジアンへ変換
-        const cosine = Math.cos(angle), sine = Math.sin(angle); // 正のYが下を向く画面の基底
-        result = multiply(result, [cosine*values.size[0], sine*values.size[0], -sine*values.size[1],
-            cosine*values.size[1], values.position[0], values.position[1]]);
-    }
-    return result;
+    const matrix = hierarchyAt(project, layerId, timeUs).matrix; // ワールドへのTRS積
+    return [matrix[0]!, matrix[4]!, matrix[1]!, matrix[5]!, matrix[3]!, matrix[7]!];
 }
-
 ////////////////////
 // 粒子番号とシードから独立した乱数を作り、シーク順の影響を除く
 function random(seed: number, index: number, channel: number): number {
@@ -63,7 +41,7 @@ export function evaluateParticles2D(project: Project2D, layerId: string, timeUs:
     transformAt: TransformAt = (time) => layerTransform(project, layerId, time)): ParticleSample[] {
     if (!isNonNegativeSafeInteger(timeUs)) throw new RangeError("評価時刻が不正です。");
     const layer = project.layers.find((item) => item.id.toLowerCase() === layerId.toLowerCase()); // 粒子レイヤー
-    if (!layer || layer.content.kind !== "emitter") return [];
+    if (!layer || layer.content.kind !== "emitter" || !hierarchyAt(project, layer.id, timeUs).visible) return [];
     const emitterId = layer.content.emitterId; // コンテンツの参照
     const emitter = project.emitters.find((item) => item.id.toLowerCase() === emitterId.toLowerCase()); // 発生設定
     if (!emitter?.particle2d) throw new Error("検証済みの2D設定が必要です。");
@@ -90,11 +68,13 @@ export function evaluateParticles2D(project: Project2D, layerId: string, timeUs:
         const seconds = ageUs / MICROS_PER_SECOND; // 運動式の秒単位
         const local: Vec2 = [origin[0]+velocity[0]*seconds+0.5*acceleration[0]*seconds**2,
             origin[1]+velocity[1]*seconds+0.5*acceleration[1]*seconds**2]; // 発生時に固定した加速度の解析解
-        const position = transformPoint(settings.space === "world" ? transformAt(Math.round(layer.startUs+birthUs)) : current, local); // 発生時の基底か現在基底
+        const transform = settings.space === "world" ? transformAt(Math.round(layer.startUs+birthUs)) : current; // 発生時の基底か現在基底
+        const position = transformPoint(transform, local);
         if (!position.every(Number.isFinite)) throw new RangeError("粒子座標が数値範囲を超えました。");
         const size = tracks?.get("particleSize"); // 粒子自身の倍率
         samples.push({ id: index, position, age: ageUs / lifetime,
-            ...(size ? { size: evaluateTrack(size, offset, 1) as number } : {}) });
+            ...(size ? { size: evaluateTrack(size, offset, 1) as number } : {}),
+            ...(layer.parentId !== null ? { transform } : {}) });
     }
     return samples;
 }

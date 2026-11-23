@@ -1,4 +1,4 @@
-export const DOCUMENT_SCHEMA_VERSION = 5; // 論理データの形式版
+export const DOCUMENT_SCHEMA_VERSION = 6; // 論理データの形式版
 export const DEFAULT_PRODUCTION_FPS = 60; // 新規プロジェクトの初期制作FPS
 
 export type Mode = "2d" | "3d";

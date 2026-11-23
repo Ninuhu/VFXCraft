@@ -8,6 +8,7 @@ const ParticleReview = lazy(() => import("./app/particles/ParticleReview").then(
 const Particle3DReview = lazy(() => import("./app/particles3d/Particle3DReview").then((module) => ({ default: module.Particle3DReview }))); // T06の検証画面
 const MaterialsReview = lazy(() => import("./app/materials/MaterialsReview").then((module) => ({ default: module.MaterialsReview }))); // T07の検証画面
 const TimelineReview = lazy(() => import("./app/timeline/TimelineReview").then((module) => ({ default: module.TimelineReview }))); // T08の検証画面
+const HierarchyReview = lazy(() => import("./app/hierarchy/HierarchyReview").then((module) => ({ default: module.HierarchyReview }))); // T09の検証画面
 const rootElement = document.getElementById("root"); // Reactの描画先
 
 if (rootElement === null) {
@@ -17,7 +18,8 @@ if (rootElement === null) {
 createRoot(rootElement).render(
     <StrictMode>
         <Suspense fallback={<p>読込中…</p>}>
-            {new URLSearchParams(location.search).has("timeline-review") ? <TimelineReview />
+            {new URLSearchParams(location.search).has("hierarchy-review") ? <HierarchyReview />
+                : new URLSearchParams(location.search).has("timeline-review") ? <TimelineReview />
                 : new URLSearchParams(location.search).has("materials-review") ? <MaterialsReview />
                 : new URLSearchParams(location.search).has("particles3d-review") ? <Particle3DReview />
                 : new URLSearchParams(location.search).has("particles-review") ? <ParticleReview />

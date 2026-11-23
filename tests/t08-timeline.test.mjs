@@ -219,7 +219,7 @@ test("旧固定検体と版3・4を開き、版5の区間補間と範囲外保�
     const verify = async () => {}; // この検体は画像なし
     for (const name of ["t04-2d-v1.vcr", "t04-3d-v1.vcr", "t05-2d-v2.vcr"]) {
         const bytes = await readFile(new URL("./fixtures/vcr/" + name, import.meta.url));
-        assert.equal((await readVcr(new Blob([bytes]), REVIEW_VCR_LIMITS, verify)).project.schemaVersion, 5);
+        assert.equal((await readVcr(new Blob([bytes]), REVIEW_VCR_LIMITS, verify)).project.schemaVersion, 6);
     }
     for (const version of [3, 4]) {
         const doc = { ...fixture("2d", [track("opacity", [SEC, 0.5])]), schemaVersion: version };
@@ -236,5 +236,5 @@ test("旧固定検体と版3・4を開き、版5の区間補間と範囲外保�
     const project = history.snapshot.project;
     const file = await writeVcr({ project, images: new Map() }, REVIEW_VCR_LIMITS, verify, "0.0.0");
     assert.deepEqual((await readVcr(file, REVIEW_VCR_LIMITS, verify)).project, project);
-    assert.throws(() => validateProject({ ...project, schemaVersion: 6 }));
+    assert.throws(() => validateProject({ ...project, schemaVersion: 7 }));
 });

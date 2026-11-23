@@ -20,6 +20,7 @@ export function sortParticles3D(samples: readonly ParticleSample3D[], camera: Ca
 ////////////////////
 // ビルボードの幅・高さ方向をワールド空間で求める
 export function billboardBasis(sample: ParticleSample3D, camera: CameraBasis): { right: Vec3; up: Vec3 } {
+    if (sample.basis2d) return sample.basis2d;
     if (sample.billboard === "camera") return { right: camera.right, up: camera.up };
     const dx = camera.position[0] - sample.position[0], dz = camera.position[2] - sample.position[2]; // 水平視線
     const length = Math.hypot(dx, dz); // 極付近の退化を検出

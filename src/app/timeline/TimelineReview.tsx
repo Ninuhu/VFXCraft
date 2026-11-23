@@ -30,13 +30,15 @@ function displayTime(time: number, unit: Unit, fps: number): number {
 
 ////////////////////
 // ファイル操作と同じ編集セッションを使う2D・3Dの検証画面
-export function TimelineReview() {
+export function TimelineReview({ session, embedded = false, sharedTime, onChange }: {
+    session?: ProjectFileFlow; embedded?: boolean; sharedTime?: { current: number }; onChange?: () => void;
+} = {}) {
     const [mode, setMode] = useState<Mode>("2d"); // サンプルの編集モード
-    const [sessions] = useState(() => ({
+    const [sessions] = useState(() => session ? { "2d": session, "3d": session } : ({
         "2d": new ProjectFileFlow(createParticleExample(), REVIEW_VCR_LIMITS, verifyBrowserImage, "0.0.0"),
         "3d": new ProjectFileFlow(create3DExample(), REVIEW_VCR_LIMITS, verifyBrowserImage, "0.0.0"),
     }));
-    const flow = sessions[mode]; // ファイル操作とタイムラインが共有する履歴
+    const flow = session ?? sessions[mode]; // 階層編集画面とも同じ履歴を共有する
     const project = flow.history.snapshot.project; // 確定した文書
     const [unit, setUnit] = useState<Unit>("seconds");
     const [zoom, setZoom] = useState(1);
@@ -76,7 +78,7 @@ export function TimelineReview() {
     ////////////////////
     // ドキュメント編集は検証済みの履歴へ送り、失敗時は表示値を保持する
     function execute(command: EditCommand): boolean {
-        try { flow.history.execute(command); setMessage(""); refresh((value) => value + 1); return true; }
+        try { flow.history.execute(command); setMessage(""); refresh((value) => value + 1); onChange?.(); return true; }
         catch (error) { setMessage(String(error)); return false; }
     }
 
@@ -103,6 +105,8 @@ export function TimelineReview() {
         if (time > project.durationUs) { setMessage("制作尺の範囲内を指定してください。"); return; }
         clock.current.time = time;
         clock.current.playing = false;
+        if (sharedTime) sharedTime.current = time;
+        onChange?.();
     }
 
     ////////////////////
@@ -210,9 +214,11 @@ export function TimelineReview() {
         // 文書や時刻が変化した場合だけプレビューを描画する
         function render(now: number) {
             const current = flow.history.snapshot.project; // 最新の保存済み形式の文書
+            if (sharedTime && !clock.current.playing) clock.current.time = sharedTime.current;
             updateClock(now, current.durationUs);
             const time = Math.min(clock.current.time, current.durationUs); // 短縮直後は終端に合わせる
             clock.current.time = time;
+            if (sharedTime) sharedTime.current = time;
             if (lastProject !== current) {
                 const active = new Set(current.assets.map((asset) => asset.id.toLowerCase())); // 現文書の素材
                 for (const [id] of blobs) if (!active.has(id)) {
@@ -263,14 +269,18 @@ export function TimelineReview() {
     }}>
         <h1>T08 タイムライン・キーフレーム・詳細再生</h1>
         <p><a href="?materials-review">T07 マテリアル検証</a></p>
-        <label>サンプル<select aria-label="サンプル" value={mode} onChange={(event) => {
+        {!session && <label>サンプル<select aria-label="サンプル" value={mode} onChange={(event) => {
             seek(0); setMode(event.currentTarget.value as Mode); selectLayer(""); selectKey(undefined); selectProperty("position");
-        }}><option value="2d">2D</option><option value="3d">3D</option></select></label>
+        }}><option value="2d">2D</option><option value="3d">3D</option></select></label>}
         <canvas aria-label="タイムラインプレビュー" ref={canvas} />
         <p ref={status} aria-label="描画状態" />
         <fieldset className="timeline-toolbar"><legend>再生と時間表示</legend>
             <button onClick={() => { if (!clock.current.playing) { reanchor(); clock.current.playing = true; } }}>再生</button>
-            <button onClick={() => { reanchor(); clock.current.playing = false; }}>一時停止</button>
+            <button onClick={() => {
+                reanchor(); clock.current.playing = false;
+                if (sharedTime) sharedTime.current = clock.current.time;
+                onChange?.();
+            }}>一時停止</button>
             <button onClick={() => seek(0)}>停止</button>
             {[-1, 1].map((direction) => <button key={direction} onClick={() => {
                 const frame = timeUsToFrame(clock.current.time, project.productionFps); // 現在位置に最も近い制作フレーム
@@ -374,7 +384,7 @@ export function TimelineReview() {
             </>}
         </fieldset>}
         <p role="alert">{message}</p>
-        <VcrReview key={mode} session={flow} onChange={() => refresh((value) => value + 1)} />
+        {!embedded && <VcrReview key={mode} session={flow} onChange={() => refresh((value) => value + 1)} />}
         {pending?.kind === "move" && <TimelineDialog label="移動先にキーがあります" onCancel={() => setPending(undefined)}>
             <p>移動先のキーを置き換えますか。</p><button onClick={() => {
                 setPending(undefined);

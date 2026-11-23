@@ -1,5 +1,7 @@
 import type { Project2D } from "../core/particles/evaluate2D.ts";
 import { evaluateParticles2D } from "../core/particles/evaluate2D.ts";
+import { hierarchyAt } from "../core/document/hierarchy.ts";
+import { toSrgb } from "../core/materials/materialEvaluation.ts";
 
 export type PreviewQuality = "accurate" | "light";
 const LIGHT_PARTICLE_LIMIT = 1000; // 軽量表示で描く最大サンプル数
@@ -29,7 +31,9 @@ export class ParticleCanvas2D {
         ctx.clearRect(0, 0, width, height);
         let total = 0, drawn = 0; // 正確な粒子数とプレビュー描画数
         for (const layer of [...project.layers].sort((a,b) => a.order-b.order)) {
-            if (!layer.isVisible || layer.content.kind !== "emitter") continue;
+            if (layer.content.kind !== "emitter") continue;
+            const inherited = hierarchyAt(project, layer.id, timeUs); // 旧検証画面にも継承を適用する
+            if (!inherited.visible) continue;
             const emitterId = layer.content.emitterId; // 発生器への参照
             const emitter = project.emitters.find((item) => item.id.toLowerCase() === emitterId.toLowerCase())!; // 検証済み発生器
             const material = project.materials.find((item) => item.id.toLowerCase() === emitter.materialId.toLowerCase())!; // 検証済み材質
@@ -38,8 +42,9 @@ export class ParticleCanvas2D {
             const stride = quality === "light" ? Math.max(1, Math.ceil(samples.length/LIGHT_PARTICLE_LIMIT)) : 1; // 表示だけを間引く
             const texture = material.textureAssetId ? images.get(material.textureAssetId.toLowerCase()) : undefined; // デコード済み素材
             ctx.globalCompositeOperation = material.blend === "additive" ? "lighter" : "source-over";
-            ctx.globalAlpha = layer.values.opacity;
-            ctx.fillStyle = "white";
+            ctx.globalAlpha = inherited.opacity;
+            ctx.fillStyle = layer.parentId === null ? "white"
+                : "rgb(" + inherited.color.map((value) => Math.round(toSrgb(value) * 255)).join(",") + ")";
             for (let index=0; index<samples.length; index+=stride) {
                 const sample = samples[index]!; // 描く粒子
                 const x = sample.position[0]/factor, y = sample.position[1]/factor; // ピクセル倍率を反映

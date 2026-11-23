@@ -73,7 +73,7 @@ test("版1の固定ファイルを移行し、版2の設定を保存往復とUnd
     const verify=async()=>{}; // 画像デコードの実検証はT04のブラウザテストで実施
     const old=await readFile(new URL("./fixtures/vcr/t04-2d-v1.vcr",import.meta.url)); // 初版の互換性検体
     const migrated=await readVcr(new Blob([old]),REVIEW_VCR_LIMITS,verify);
-    assert.equal(migrated.project.schemaVersion,5);
+    assert.equal(migrated.project.schemaVersion,6);
     assert.equal(migrated.project.pixelScale,2);
     const history=new EditingHistory(fixture()); // 現行文書
     const original=history.snapshot; // Undo先
