@@ -14,6 +14,7 @@ const VERTICES_PER_PARTICLE = 6;
 const MAX_REVIEW_DIMENSION = 2048; // 検証画面でのGPUターゲットの上限
 
 export type MaterialFrameOptions = { background?: BackgroundSettings; light: boolean;
+    hideBackgroundGrid?: boolean;
     images: ReadonlyMap<string, ImageBitmap> };
 export type MaterialFrameStats = { count: number; calls: number; simulationMs: number; sortMs: number; prepareMs: number;
     bodyMs: number; bloomMs: number; bufferBytes: number; textures: number };
@@ -146,7 +147,8 @@ export class MaterialPreview {
             if (strength > 0) emitting.add(sample.materialId.toLowerCase());
         });
         this.buildGroups(ordered, indices);
-        const background = options.background ? resolveBackground(options.background, preview.background) : undefined;
+        const resolvedBackground = options.background ? resolveBackground(options.background, preview.background) : undefined;
+        const background = resolvedBackground && options.hideBackgroundGrid ? { ...resolvedBackground, grid: false } : resolvedBackground;
         this._scene.background = background ? this._backgroundTexture : null;
         if (background) {
             const key = JSON.stringify([bodyWidth, bodyHeight, background]); // 背景の更新条件

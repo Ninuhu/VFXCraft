@@ -9,6 +9,7 @@ type LayerPatch = Partial<Pick<Layer, "name" | "order" | "isVisible" | "isLocked
 type TrackTarget = Pick<Track, "layerId" | "property">;
 
 export type EditCommand =
+    | { readonly kind: "edit.batch"; readonly commands: readonly EditCommand[] }
     | HierarchyCommand
     | { readonly kind: "timeline.duration"; readonly durationUs: number; readonly outside?: "keep" | "delete" }
     | { readonly kind: "timeline.fps"; readonly productionFps: number }
@@ -109,6 +110,12 @@ function changeDuration(project: Project, command: Extract<EditCommand, { kind: 
 // 元の文書を変更せずに編集候補を組み立てる
 function createCandidate(project: Project, command: EditCommand): unknown {
     switch (command.kind) {
+        case "edit.batch":
+            // 各候補にもロック・参照検証を適用し、失敗時は呼出元の文書を変更しない。
+            if (command.commands.some((item) => item.kind === "layer.update" && item.patch.isLocked === false)) {
+                throw new RangeError("ロック解除は個別に実行してください。複合編集でロック保護を回避できません。");
+            }
+            return command.commands.reduce((candidate, item) => applyEditCommand(candidate, item), project);
         case "layer.transform":
         case "hierarchy.add":
         case "hierarchy.duplicate":

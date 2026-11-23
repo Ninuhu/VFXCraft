@@ -1,0 +1,103 @@
+{
+  "browser": "158.0.4370.33",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "records": [
+    {
+      "mode": "2d",
+      "rate": 100,
+      "layers": 4,
+      "materials": 4,
+      "keys": 80,
+      "bloom": 1.5,
+      "preview": "accurate",
+      "canvas": "640x360",
+      "frames": {
+        "n": 59,
+        "median": 16.699999999999818,
+        "p95": 17.09999999999991
+      },
+      "cpu": {
+        "n": 59,
+        "median": 3,
+        "p95": 3.7000000001862645
+      },
+      "particleMax": 800,
+      "memory": 25279468,
+      "automationEditElapsedMs": 187.6201000000001
+    },
+    {
+      "mode": "2d",
+      "rate": 2500,
+      "layers": 4,
+      "materials": 4,
+      "keys": 80,
+      "bloom": 1.5,
+      "preview": "accurate",
+      "canvas": "640x360",
+      "frames": {
+        "n": 59,
+        "median": 16.90000000000009,
+        "p95": 83.29999999999973
+      },
+      "cpu": {
+        "n": 59,
+        "median": 14.700000000186265,
+        "p95": 77.5
+      },
+      "particleMax": 20000,
+      "memory": 108319982,
+      "automationEditElapsedMs": 185.84219999999914
+    },
+    {
+      "mode": "3d",
+      "rate": 100,
+      "layers": 4,
+      "materials": 4,
+      "keys": 80,
+      "bloom": 1.5,
+      "preview": "accurate",
+      "canvas": "640x360",
+      "frames": {
+        "n": 59,
+        "median": 16.699999999999818,
+        "p95": 17.199999999999818
+      },
+      "cpu": {
+        "n": 59,
+        "median": 6.7999999998137355,
+        "p95": 8.700000000186265
+      },
+      "particleMax": 800,
+      "memory": 165507426,
+      "automationEditElapsedMs": 222.3063000000111
+    },
+    {
+      "mode": "3d",
+      "rate": 2500,
+      "layers": 4,
+      "materials": 4,
+      "keys": 80,
+      "bloom": 1.5,
+      "preview": "accurate",
+      "canvas": "640x360",
+      "frames": {
+        "n": 59,
+        "median": 65.80000000000018,
+        "p95": 216.60000000000036
+      },
+      "cpu": {
+        "n": 59,
+        "median": 52.200000000186265,
+        "p95": 209.8999999994412
+      },
+      "particleMax": 20000,
+      "memory": 124223966,
+      "automationEditElapsedMs": 364.3555000000051
+    }
+  ],
+  "gpuTime": "未測定",
+  "reactCommits": "未測定"
+}

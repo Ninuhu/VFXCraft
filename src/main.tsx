@@ -1,7 +1,9 @@
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./app/App";
 import "./app/verification.css";
+
+const App = lazy(() => import("./app/App").then((module) => ({ default: module.App }))); // T01のGPU検証は必要時だけ読み込む
+const EditorApp = lazy(() => import("./app/editor/EditorApp").then((module) => ({ default: module.EditorApp }))); // 正式画面を独立した境界で読み込む
 
 const VcrReview = lazy(() => import("./app/projectFiles/VcrReview").then((module) => ({ default: module.VcrReview }))); // 保存検証だけを別に読み込む
 const ParticleReview = lazy(() => import("./app/particles/ParticleReview").then((module) => ({ default: module.ParticleReview }))); // T05の検証画面
@@ -23,7 +25,8 @@ createRoot(rootElement).render(
                 : new URLSearchParams(location.search).has("materials-review") ? <MaterialsReview />
                 : new URLSearchParams(location.search).has("particles3d-review") ? <Particle3DReview />
                 : new URLSearchParams(location.search).has("particles-review") ? <ParticleReview />
-                : new URLSearchParams(location.search).has("vcr-review") ? <VcrReview /> : <App />}
+                : new URLSearchParams(location.search).has("vcr-review") ? <VcrReview />
+                : new URLSearchParams(location.search).has("technical-review") ? <App /> : <EditorApp />}
         </Suspense>
     </StrictMode>,
 );

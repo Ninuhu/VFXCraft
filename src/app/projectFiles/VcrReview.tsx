@@ -1,8 +1,8 @@
 import { useState } from "react";
 import packageInfo from "../../../package.json";
 import { createProject } from "../../core/document/createProject.ts";
-import { readImageDimensions } from "../../core/persistence/imageDimensions.ts";
-import { imageMediaType, REVIEW_VCR_LIMITS } from "../../core/persistence/vcrArchive.ts";
+import { REVIEW_VCR_LIMITS } from "../../core/persistence/vcrArchive.ts";
+import { importProjectImage } from "./projectImages.ts";
 import { browserSaveRoute, canOverwrite, canPickOpen, pickProject, verifyBrowserImage } from "./browserProjectFiles.ts";
 import { ProjectFileFlow, type FileTarget, type OpenDecision } from "./projectFileFlow.ts";
 
@@ -73,14 +73,7 @@ export function VcrReview({ session, onChange }: { session?: ProjectFileFlow; on
     ////////////////////
     // 画像を検証し、履歴に素材登録を記録する
     async function addImage(file: File) {
-        if (file.size > REVIEW_VCR_LIMITS.entryBytes) throw new Error("画像容量が検証上限を超えています。");
-        const mediaType = await imageMediaType(file); // 実バイトから識別した画像形式
-        const dimensions = await readImageDimensions(file, mediaType, REVIEW_VCR_LIMITS.imagePixels); // デコード前の寸法
-        const asset = { id: crypto.randomUUID(), name: file.name, mediaType, ...dimensions }; // 検証済みメタデータ
-        await verifyBrowserImage(file.slice(0, file.size, mediaType), asset);
-        flow.history.execute({ kind: "asset.add", asset });
-        flow.rememberImage(asset.id, file);
-        flow.collectImages();
+        await importProjectImage(flow, file, verifyBrowserImage);
     }
 
     return <main style={{ padding: "2rem" }}>

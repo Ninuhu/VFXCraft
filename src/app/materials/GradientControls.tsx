@@ -1,5 +1,6 @@
 import type { Gradient, GradientStop, LinearRgb } from "../../core/document/model.ts";
 import { toLinear, toSrgb } from "../../core/materials/materialEvaluation.ts";
+import type { ReactNode } from "react";
 
 ////////////////////
 // HTML色入力の表示用sRGBを作る
@@ -43,8 +44,9 @@ function nextOffset(stops: readonly GradientStop<unknown>[]): number {
 
 ////////////////////
 // 色と透明度の制御点を別々に編集する
-export function GradientControls({ name, gradient, onChange }: {
+export function GradientControls({ name, gradient, onChange, renderColor }: {
     name: string; gradient: Gradient; onChange: (gradient: Gradient) => void;
+    renderColor?: (label: string, value: LinearRgb, replace: (value: LinearRgb) => Gradient) => ReactNode;
 }) {
     ////////////////////
     // 一点を差し替え、整列や重複チェックは文書検証へ委ねる
@@ -56,10 +58,11 @@ export function GradientControls({ name, gradient, onChange }: {
         {gradient.colors.map((stop, index) => <div key={index} className="material-fields">
             <NumberField label={name + " 色位置 " + (index + 1)} value={stop.offset} onCommit={(offset) =>
                 onChange({ ...gradient, colors: replace(gradient.colors, index, { ...stop, offset }) })} />
-            <label>色 {index + 1}<input key={colorHex(stop.value)} type="color" defaultValue={colorHex(stop.value)} onBlur={(event) => {
+            {renderColor ? renderColor(name + " 色 " + (index + 1), stop.value, (value) => ({ ...gradient, colors: replace(gradient.colors, index, { ...stop, value }) }))
+                : <label>色 {index + 1}<input key={colorHex(stop.value)} type="color" defaultValue={colorHex(stop.value)} onBlur={(event) => {
                 if (event.currentTarget.value !== colorHex(stop.value)) onChange({ ...gradient,
                     colors: replace(gradient.colors, index, { ...stop, value: fromHex(event.currentTarget.value) }) });
-            }} /></label>
+            }} /></label>}
             <button onClick={() => onChange({ ...gradient, colors: gradient.colors.filter((_, position) => position !== index) })}>色 {index + 1} を削除</button>
         </div>)}
         <button disabled={gradient.colors.length >= 64} onClick={() => onChange({ ...gradient,
