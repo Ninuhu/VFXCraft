@@ -14,7 +14,9 @@ import { newEditorProject, type ProjectTemplate } from "./projectFactory.ts";
 import { EMPTY_SELECTION, firstLayerSelection, pruneSelection, type LayerSelection } from "./selection.ts";
 import { DEFAULT_LAYOUT, parseLayout, PANEL_IDS } from "./preferences.ts";
 import { ACTION_LABELS, parseShortcuts, shortcutKey, type ShortcutAction } from "./shortcuts.ts";
-import { recoverySnapshot, storeRecovery, listRecovery, readRecovery, type RecoveryEntry } from "./recovery.ts";
+import { listRecoveryReport, readRecovery, type RecoveryEntry } from "./recovery.ts";
+import { AutosaveController, type AutosaveState } from "./autosave.ts";
+import { persistenceErrorMessage } from "./persistenceErrors.ts";
 import { HierarchyPanel } from "./HierarchyPanel.tsx";
 import { PropertiesPanel } from "./PropertiesPanel.tsx";
 import type { PreviewActions } from "./PreviewPanel.tsx";
@@ -65,6 +67,8 @@ export function EditorApp() {
     const [message, setMessage] = useState(""), [prompt, setPrompt] = useState<Prompt | null>(null); // 失敗理由と安全な確認
     const [mode, setMode] = useState<Mode>("2d"), [template, setTemplate] = useState<ProjectTemplate>("basic"), [name, setName] = useState("新しいエフェクト"); // 新規作成フォーム
     const [candidates, setCandidates] = useState<RecoveryEntry[]>([]); // 選択するまで展開しない復元候補
+    const [autosaveState, setAutosaveState] = useState<AutosaveState>("waiting"); // 明示保存と区別する状態
+    const autosave = useRef<AutosaveController | null>(null), fileBusy = useRef(false); // 同一イベント内の二重操作も排他
     const [tick, setTick] = useState(0); // 文書編集時だけReactへ通知
     const time = useRef(0), previewActions = useRef<PreviewActions | null>(null), timelineActions = useRef<TimelineActions | null>(null); // 共通の再生位置と操作窓口
     const clock = useRef<PlaybackClock>({ time: 0, anchor: 0, wall: 0, playing: false, speed: 1, loop: true }); // パネルを隠しても破棄しない時計
@@ -97,12 +101,17 @@ export function EditorApp() {
     ////////////////////
     // 保存中に加わった編集はスナップショット識別子で未保存のまま残す。
     async function save(saveAs = false): Promise<boolean> {
+        if (flow.history.isContinuousEditing) { report("編集中の入力を確定または取消してから保存してください。"); return false; }
         try { const result = await flow.save(saveRoute(), saveAs); setMessage(result ? "保存処理が完了しました。" : "保存確認を取り消しました。"); refresh(); return result; }
-        catch (error) { report(error); return false; }
+        catch (error) { report(persistenceErrorMessage(error)); return false; }
     }
     ////////////////////
     // 新規作成・復元による破棄の直前に、保存・破棄・取消を提示する。
     async function mayReplace(): Promise<boolean> {
+        if (flow.history.isContinuousEditing) { report("編集中の入力を確定または取消してから切り替えてください。"); return false; }
+        const initial = flow.history.snapshot; // 自動保存待機中の追加編集も破棄しない
+        if (hasProject) await autosave.current?.flush().catch((error: unknown) => report(persistenceErrorMessage(error)));
+        if (initial !== flow.history.snapshot) { report("自動保存中に編集が追加されたため、切替を中止しました。"); return false; }
         if (!hasProject || flow.history.isSaved) return true;
         const before = flow.history.snapshot, choice = await confirm("現在のプロジェクトに未保存変更があります。", ["保存して続行", "保存せず続行"]); // -1は取消
         if (choice === -1) return false;
@@ -119,15 +128,21 @@ export function EditorApp() {
     ////////////////////
     // 排他中でも編集は可能だが、別のファイル操作を重ねない。
     async function run(operation: () => Promise<void>) {
-        if (busy) return;
-        setBusy(true); try { await operation(); } catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) report(error); }
-        finally { setBusy(false); refresh(); }
+        if (fileBusy.current) return;
+        fileBusy.current = true;
+        setBusy(true); try { await operation(); } catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) report(persistenceErrorMessage(error)); }
+        finally { fileBusy.current = false; setBusy(false); refresh(); }
     }
     ////////////////////
     // T04の検証付き読込が失敗した場合、文書・素材・履歴を保持する。
     async function open(file: File, target?: Awaited<ReturnType<typeof pickProject>>["target"]) {
+        if (flow.history.isContinuousEditing) { report("編集中の入力を確定または取消してから開いてください。"); return; }
+        const before = flow.history.snapshot; // 読込前の自動保存中も文書を保護
+        if (hasProject) await autosave.current?.flush().catch((error: unknown) => report(persistenceErrorMessage(error)));
+        if (before !== flow.history.snapshot) { report("自動保存中に編集が追加されたため、切替を中止しました。"); return; }
         const decision = !hasProject || flow.history.isSaved ? 1 : await confirm("開く前に未保存変更をどうしますか。", ["保存して開く", "保存せず開く"]);
         if (decision < 0) return;
+        if (before !== flow.history.snapshot) { report("確認中に編集が追加されたため、切替を中止しました。"); return; }
         const result = await flow.open(file, target, decision === 0 ? "save" : "discard", saveRoute()); // 途中編集もT04が検出
         if (result === "opened") { clock.current = { time: 0, anchor: 0, wall: 0, playing: false, speed: 1, loop: true }; setHasProject(true); time.current = 0; setSelection(firstLayerSelection(flow.history.preview.layers.map((item) => item.id))); setAutoKey(false); setScreen("editor"); }
         else setMessage("切替を取り消しました。確認中の追加編集は保持されています。");
@@ -159,17 +174,31 @@ export function EditorApp() {
     }, [flow, project.id]);
     useEffect(() => { if (screen !== "editor") clock.current.playing = false; }, [screen]);
     useEffect(() => {
-        const leave = (event: BeforeUnloadEvent) => { if (hasProject && !flow.history.isSaved) { event.preventDefault(); event.returnValue = ""; } }; // 標準文言に従う
+        const leave = (event: BeforeUnloadEvent) => {
+            if (hasProject && (!flow.history.isSaved || flow.history.preview !== flow.history.snapshot.project)) {
+                event.preventDefault(); event.returnValue = ""; // 確定前の有効な編集も保護する
+            }
+        }; // 標準文言に従う
         window.addEventListener("beforeunload", leave); return () => window.removeEventListener("beforeunload", leave);
     }, [flow, hasProject]);
-    useEffect(() => { let cancelled = false; void listRecovery().then((entries) => { if (!cancelled) setCandidates(entries); }).catch(report); return () => { cancelled = true; }; }, [report]);
+    ////////////////////
+    // 候補の破損を個別に通知する。保留は削除操作にしない。
+    async function refreshCandidates() {
+        const result = await listRecoveryReport(); // アーカイブ全件の展開は避ける
+        setCandidates(result.entries);
+        if (result.invalidCount) report(`${result.invalidCount}件の復元候補情報が破損しています。正常な候補は利用できます。`);
+    }
+    useEffect(() => { let cancelled = false; void listRecoveryReport().then((result) => {
+        if (!cancelled) { setCandidates(result.entries); if (result.invalidCount) report(`${result.invalidCount}件の復元候補情報が破損しています。正常な候補は利用できます。`); }
+    }).catch((error: unknown) => { if (!cancelled) report(persistenceErrorMessage(error)); }); return () => { cancelled = true; }; }, [report]);
     useEffect(() => {
-        if (!hasProject) return;
-        const timer = window.setTimeout(() => {
-            void recoverySnapshot(flow, verifyBrowserImage).then(storeRecovery).catch((error: unknown) => report("自動保存に失敗しました: " + String(error)));
-        }, 2000); // 確定後2秒の暫定デバウンス。T11で世代・容量を再評価する。
-        return () => clearTimeout(timer);
-    }, [flow, tick, hasProject, report]);
+        const controller = new AutosaveController(flow, verifyBrowserImage, { onState: (state, error) => {
+            setAutosaveState(state); if (error) report(persistenceErrorMessage(error));
+        } }); // 効果ごとに生成しStrictModeの再マウントにも対応
+        autosave.current = controller;
+        return () => { controller.dispose(); if (autosave.current === controller) autosave.current = null; };
+    }, [flow, report]);
+    useEffect(() => { if (hasProject) autosave.current?.observe(); }, [flow, tick, hasProject]);
 
     ////////////////////
     // メニューとショートカットが同じ操作を呼ぶ。複数選択でも対象はアクティブ層一つ。
@@ -229,6 +258,8 @@ export function EditorApp() {
             <span className="top-spacer" /><button title={tip("undo", "直前の編集を取り消す")} disabled={!flow.history.canUndo} onClick={() => action("undo")}>↶ Undo</button>
             <button title={tip("redo", "取り消した編集をやり直す")} disabled={!flow.history.canRedo} onClick={() => action("redo")}>↷ Redo</button>
             <button className="primary" title={tip("save", "現在のプロジェクトを保存")} disabled={busy || !hasProject} onClick={() => action("save")}>保存</button>
+            {hasProject && <div className="editor-actions" aria-live="polite"><span data-testid="autosave-state">{busy ? "ファイル処理中… ／ " : ""}{({ waiting: "自動保存待機中", saving: "自動保存中…", saved: "ブラウザ内に自動保存済み", failed: "自動保存失敗" })[autosaveState]}</span>
+                {autosaveState === "failed" && <button onClick={() => void autosave.current?.flush().catch(() => {})}>自動保存を再試行</button>}</div>}
         </header>
         <input hidden ref={fileInput} aria-label="プロジェクトファイル" type="file" accept=".vcr" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void run(() => open(file)); }} />
         {screen !== "editor" && <nav className="app-sidebar" aria-label="メインナビゲーション">{NAVIGATION.map(([id, label]) => <button key={id} className={screen === id ? "active" : ""} disabled={id === "editor" && !hasProject} onClick={() => setScreen(id)}>{label}</button>)}</nav>}
@@ -256,14 +287,14 @@ export function EditorApp() {
                 <div className="home-cards"><button className="primary" onClick={() => setScreen("new")}>＋ 新規プロジェクトを作成</button><button disabled={busy} onClick={openPicker}>プロジェクトを開く（.vcr）</button>
                     {(["2d", "3d"] as const).map((item) => <button className="mode-card" key={item} onClick={() => { setMode(item); setScreen("new"); }}><strong>{item.toUpperCase()}エフェクト</strong><p>{item === "2d" ? "スプライト・パーティクルで制作" : "立体的な粒子とビルボードで制作"}</p></button>)}</div>
                 {hasProject && <section><h2>編集中のプロジェクト</h2><button onClick={() => setScreen("editor")}>{project.name} — {flow.history.isSaved ? "保存済み" : "未保存"}</button><p>同じ文書を保持してエディタへ戻ります。</p></section>}
-                <section><h2>作業の復元候補</h2>{candidates.length === 0 ? <p>復元候補はありません。</p> : candidates.map((entry) => <div key={entry.id}><span>{entry.name} — {new Date(entry.savedAt).toLocaleString("ja-JP")}</span>
+                <section><h2>作業の復元候補</h2><button disabled={busy} onClick={() => void run(refreshCandidates)}>復元候補を更新</button>{candidates.length === 0 ? <p>復元候補はありません。</p> : candidates.map((entry) => <div key={entry.id}><span>{entry.name} — {entry.mode?.toUpperCase() ?? "旧候補"} — {new Date(entry.savedAt).toLocaleString("ja-JP")} {entry.sessionId ? `／タブ ${entry.sessionId.slice(0, 8)}／世代 ${entry.sequence}` : ""}</span>
                     <button disabled={busy} onClick={() => void run(async () => {
                         const data = await readRecovery(entry, verifyBrowserImage); // 破損検証を破棄確認より先に行う
                         if (!await mayReplace()) return;
                         const next = new ProjectFileFlow(data.project, REVIEW_VCR_LIMITS, verifyBrowserImage, "0.0.0"); // 復元は明示保存済みとみなさない
                         for (const [id, image] of data.images) next.rememberImage(id, image);
                         replace(next);
-                    })}>作業を復元</button></div>)}<button onClick={() => setCandidates([])}>復元を保留</button><p>復元は.vcrファイルを上書きせず、明示保存するまで未保存です。</p></section>
+                    })}>作業を復元</button></div>)}<button onClick={() => setCandidates([])}>復元を保留</button><p>復元は.vcrファイルを上書きせず、明示保存するまで未保存です。自動保存はブラウザ・プロファイル・オリジンごとに保存され、データ消去で失われます。恒久バックアップには.vcrへ保存してください。候補は自動削除しません。日時は端末の時計によるため、タブと世代も確認してください。</p></section>
             </>}
             {screen === "new" && <><h1>新規プロジェクト作成</h1><div className="screen-columns"><section>
                 <label>プロジェクト名<input aria-label="プロジェクト名" value={name} onChange={(event) => setName(event.target.value)} /></label>

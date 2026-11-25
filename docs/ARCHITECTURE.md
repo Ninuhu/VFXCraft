@@ -177,3 +177,7 @@ T07検証では、共通の材質評価とGPUシェーダーへ2D正射影と3D�
 ## T10 正式UIの統合
 
 [ADR-013](architecture/ADR-013.md)に共通セッション、パネル配置、ショートカット、Auto Keyと復元の境界を記録する。正式プレビューとタイムラインは同じ文書・履歴・プレイヘッドを使い、毎フレームのReact再構築を避ける。自動保存の基礎実装はユーザー承認でT11からT10へ移す。
+
+## T11 保存・復元の信頼性
+
+既存ProjectFileFlowとwriteVcr/readVcrを維持し、AutosaveControllerが確定revisionに基づく2秒デバウンスと直列書込を担う。recovery.tsはIndexedDB版2で旧snapshotsを保持し、タブ・世代別のgenerationsへ完成アーカイブを追加する。通常保存・自動保存・復元で文書検証を重複しない。ブラウザ内候補は明示保存位置と独立し、復元は未保存で開始する。接続・タイマーの所有と解放、保持・容量制約は[ADR-014](architecture/ADR-014.md)、実測は[T11検証記録](T11_VALIDATION.md)。

@@ -89,7 +89,7 @@ export function PropertiesPanel() {
                 <EditNumber label="基本透明度" value={value("materialOpacity") as number} min={0} max={1} command={(next, timeUs) => command("materialOpacity", next, timeUs)} />
                 <label>合成モード<select value={material.blend} onChange={(event) => editor.execute({ kind: "material.appearance", materialId: material.id, color: material.color,
                     appearance, blend: event.target.value as typeof material.blend })}><option value="alpha">Normal（通常）</option><option value="additive">Additive（加算）</option><option value="multiply">Multiply（乗算）</option></select></label>
-                <label>テクスチャ<select value={material.textureAssetId ?? ""} onChange={(event) => editor.execute({ kind: "material.setTexture", materialId: material.id, assetId: event.target.value || null })}>
+                <label>テクスチャ<select aria-label="テクスチャ" value={material.textureAssetId ?? ""} onChange={(event) => editor.execute({ kind: "material.setTexture", materialId: material.id, assetId: event.target.value || null })}>
                     <option value="">なし</option>{project.assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>
                 <EditNumber label="Bloom強度" value={value("bloomStrength") as number} min={0} max={8} command={(next, timeUs) => command("bloomStrength", next, timeUs)} />
                 {(["radius", "threshold"] as const).map((property) => <EditNumber key={property} label={property === "radius" ? "Bloom半径" : "Bloomしきい値"}

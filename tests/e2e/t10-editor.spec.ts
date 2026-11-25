@@ -100,8 +100,8 @@ test("ダウンロード確認・.vcr往復・失敗保護・自動復元", asyn
     await page.getByRole("treeitem").first().getByRole("button", { name: "✦ 新しい粒子", exact: true }).click();
     await page.getByLabel("初速度", { exact: true }).fill("42"); await page.getByLabel("初速度", { exact: true }).press("Enter");
     await expect.poll(() => page.evaluate(async () => {
-        const request = indexedDB.open("vfxcraft-project-recovery", 1);
-        return new Promise<number>((resolve) => { request.onsuccess = () => { const db = request.result, query = db.transaction("snapshots").objectStore("snapshots").count(); query.onsuccess = () => { resolve(query.result); db.close(); }; }; });
+        const request = indexedDB.open("vfxcraft-project-recovery");
+        return new Promise<number>((resolve, reject) => { request.onerror = () => reject(request.error); request.onsuccess = () => { const db = request.result, query = db.transaction("generations").objectStore("generations").count(); query.onsuccess = () => { resolve(query.result); db.close(); }; }; });
     })).toBeGreaterThan(0);
     await page.getByLabel("プロジェクトファイル", { exact: true }).setInputFiles({ name: "bad.vcr", mimeType: "application/zip", buffer: Buffer.from("broken") });
     await page.getByRole("button", { name: "保存せず開く", exact: true }).click();
@@ -187,7 +187,7 @@ test("不正な共通設定・保存失敗・破損復元で起動と操作を�
     await expect(page.getByRole("status")).toContainText("共通設定を保存できませんでした");
     await page.evaluate(async () => {
         await new Promise<void>((resolve, reject) => {
-            const request = indexedDB.open("vfxcraft-project-recovery", 1);
+            const request = indexedDB.open("vfxcraft-project-recovery");
             request.onupgradeneeded = () => request.result.createObjectStore("snapshots", { keyPath: "id" });
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
