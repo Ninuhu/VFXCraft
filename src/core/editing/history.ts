@@ -43,6 +43,10 @@ export class EditingHistory {
     }
 
     ////////////////////
+    // 保存制御が未確定の連続入力と確定済み文書を区別できるようにする
+    public get isContinuousEditing(): boolean { return this._continuous !== undefined; }
+
+    ////////////////////
     // 連続編集中は履歴移動を無効にする
     public get canUndo(): boolean {
         return !this._continuous && this._index > 0;
