@@ -128,3 +128,13 @@ Web起動（AT-01）、粒子発生・描画・カメラ（AT-02〜04）、保�
 | REQ-Q10-01/06、AT-11/12 | T04保存、recovery、未保存確認 | T11で容量・世代・中断等の網羅 |
 | REQ-Q12-05、UI-18 | shortcuts、設定・説明 | T14の完全ヘルプ |
 | UI-13〜15/17 | プリセット・素材・出力・設定の入口と既存操作 | T12〜14の本格機能 |
+
+## T11 REQ-Q10-01/06・AT-11/12
+
+| 要件/検収 | 実装 | 検証 | 状態の正本 |
+|---|---|---|---|
+| REQ-Q10-01、AT-11 | 既存ProjectFileFlow・vcrArchive・画像ストア | T04〜T10回帰とT11全文書/画像/粒子往復・非同期保存異常系 | T11_VALIDATION.md |
+| REQ-Q10-06、AT-12 | AutosaveController・recovery.ts・正式EditorApp | 確定revision、DB容量/abort/旧版更新/二タブ/破損候補 | T11_VALIDATION.md |
+| REQ-Q14-03、AT-12の共通設定部分 | 既存localStorage設定を維持 | T10配置/キー回帰、.vcrにUI操作状態を追加しない | 日英・両テーマの完成はT14 |
+
+保持・容量・接続の方式はADR-004/ADR-014。未検証事項は検証記録に明記し、全MVP-B完了とは扱わない。
